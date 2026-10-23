@@ -10,32 +10,41 @@ public static class WindowFocus
 {
     public static IntPtr Foreground => GetForegroundWindow();
 
-    public static void ForceForeground(IntPtr hwnd)
+    /// <summary>Intenta poner la ventana delante con el foco del teclado. Devuelve true si lo ha conseguido.</summary>
+    public static bool ForceForeground(IntPtr hwnd)
     {
         var foreground = GetForegroundWindow();
         if (foreground == hwnd)
         {
-            return;
+            return true;
         }
 
-        // 1) Compartir la cola de entrada con la ventana que tiene el foco permite quitárselo.
-        var foregroundThread = GetWindowThreadProcessId(foreground, out _);
+        // 1) Una pulsación de Alt desbloquea el "foreground lock" de Windows: sin ella, una app en segundo plano
+        //    suele quedarse parpadeando en la barra de tareas en lugar de recibir el foco.
+        keybd_event(VK_MENU, 0, KEYEVENTF_EXTENDEDKEY, UIntPtr.Zero);
+        keybd_event(VK_MENU, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, UIntPtr.Zero);
+
+        // 2) Compartir la cola de entrada con la ventana que tiene el foco permite quitárselo.
+        var foregroundThread = foreground != IntPtr.Zero ? GetWindowThreadProcessId(foreground, out _) : 0;
         var ourThread = GetCurrentThreadId();
-        if (foregroundThread != 0 && foregroundThread != ourThread)
+        var attached = foregroundThread != 0 && foregroundThread != ourThread && AttachThreadInput(ourThread, foregroundThread, true);
+        try
         {
-            AttachThreadInput(ourThread, foregroundThread, true);
+            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
             BringWindowToTop(hwnd);
             SetForegroundWindow(hwnd);
-            AttachThreadInput(ourThread, foregroundThread, false);
+            SetActiveWindow(hwnd);
+            SetFocus(hwnd);
+        }
+        finally
+        {
+            if (attached)
+            {
+                AttachThreadInput(ourThread, foregroundThread, false);
+            }
         }
 
-        // 2) Si no ha bastado, una pulsación de Alt hace que Windows acepte el cambio de foco.
-        if (GetForegroundWindow() != hwnd)
-        {
-            keybd_event(VK_MENU, 0, 0, UIntPtr.Zero);
-            keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            SetForegroundWindow(hwnd);
-        }
+        return GetForegroundWindow() == hwnd;
     }
 
     /// <summary>Devuelve el foco a la ventana que lo tenía (Big Picture o el juego).</summary>
@@ -48,7 +57,21 @@ public static class WindowFocus
     }
 
     private const byte VK_MENU = 0x12;
+    private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     private const uint KEYEVENTF_KEYUP = 0x0002;
+    private static readonly IntPtr HWND_TOPMOST = new(-1);
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_SHOWWINDOW = 0x0040;
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetActiveWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetFocus(IntPtr hwnd);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();

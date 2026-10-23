@@ -31,6 +31,8 @@ public sealed class OverlayForm : Form
     private sealed record Item(ItemKind Kind, string Id, string Name, bool IsCurrent);
 
     private readonly System.Windows.Forms.Timer _idleTimer;
+    private readonly System.Windows.Forms.Timer _focusTimer = new() { Interval = 50 };
+    private readonly System.Diagnostics.Stopwatch _focusClock = new();
     private readonly List<(Item Item, Label Row)> _rows = new();
     private readonly List<Font> _fonts = new();
     private readonly IntPtr _previousForeground;
@@ -66,6 +68,7 @@ public sealed class OverlayForm : Form
 
         _idleTimer = new System.Windows.Forms.Timer { Interval = (int)IdleClose.TotalMilliseconds };
         _idleTimer.Tick += (_, _) => Close();
+        _focusTimer.Tick += (_, _) => EnsureFocus();
 
         BuildUi();
         PlaceInCorner();
@@ -109,7 +112,7 @@ public sealed class OverlayForm : Form
             BuildUi();
         }
         PlaceInCorner();
-        WindowFocus.ForceForeground(Handle);
+        GrabFocus();
         _idleTimer.Start();
     }
 
@@ -155,7 +158,7 @@ public sealed class OverlayForm : Form
     {
         base.OnDeactivate(e);
         // Si el usuario hace clic en otro sitio, el overlay se va.
-        if (!_busy)
+        if (!_busy && !_focusTimer.Enabled)
         {
             BeginInvoke(Close);
         }
@@ -164,6 +167,7 @@ public sealed class OverlayForm : Form
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         _idleTimer.Dispose();
+        _focusTimer.Dispose();
         // Solo devolvemos el foco si seguía en el overlay (si el usuario hizo clic en otra ventana, la respetamos).
         if (WindowFocus.Foreground == Handle)
         {
@@ -357,7 +361,36 @@ public sealed class OverlayForm : Form
         }
         Reload();
         PlaceInCorner();
-        WindowFocus.ForceForeground(Handle);
+        GrabFocus();
+    }
+
+    /// <summary>
+    /// Toma el foco y, si Windows no lo concede a la primera, reintenta cada 50 ms durante 3 s. Mientras Big Picture
+    /// tenga el foco, Steam sigue moviéndose con el mismo mando, así que esto tiene que ser inmediato.
+    /// </summary>
+    private void GrabFocus()
+    {
+        _focusClock.Restart();
+        if (WindowFocus.ForceForeground(Handle))
+        {
+            Log.Info("Overlay: foco obtenido al instante");
+            return;
+        }
+        _focusTimer.Start();
+    }
+
+    private void EnsureFocus()
+    {
+        if (WindowFocus.ForceForeground(Handle))
+        {
+            _focusTimer.Stop();
+            Log.Info($"Overlay: foco obtenido tras {_focusClock.ElapsedMilliseconds} ms");
+        }
+        else if (_focusClock.Elapsed > TimeSpan.FromSeconds(3))
+        {
+            _focusTimer.Stop();
+            Log.Error($"Overlay: Windows no ha dado el foco al overlay (lo tiene la ventana 0x{WindowFocus.Foreground:X})");
+        }
     }
 
     // ------------------------------------------------------------------
