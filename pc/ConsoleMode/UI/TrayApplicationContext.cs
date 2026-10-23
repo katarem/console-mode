@@ -200,7 +200,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
         else
         {
-            _overlay?.HandleAction(action);
+            _overlay?.HandlePadAction(action);
         }
     }
 

@@ -37,10 +37,11 @@ public sealed class OverlayForm : Form
     private sealed record Item(ItemKind Kind, string Id, string Name, bool IsCurrent);
 
     /// <summary>Una línea del overlay ya colocada: cabecera de sección o fila seleccionable.</summary>
-    private sealed record Line(Rectangle Bounds, string Text, Font Font, Color Color, int RowIndex = -1);
+    /// <remarks>Las líneas de la lista (<see cref="Scrolls"/>) usan coordenadas de contenido: se dibujan desplazadas.</remarks>
+    private sealed record Line(Rectangle Bounds, string Text, Font Font, Color Color, int RowIndex = -1, bool Scrolls = false);
 
     private readonly System.Windows.Forms.Timer _idleTimer;
-    private readonly System.Windows.Forms.Timer _focusTimer = new() { Interval = 50 };
+    private readonly System.Windows.Forms.Timer _focusTimer = new() { Interval = 100 };
     private readonly System.Diagnostics.Stopwatch _focusClock = new();
     private readonly IntPtr _previousForeground;
     private readonly ModeSwitcher _switcher;
@@ -50,6 +51,12 @@ public sealed class OverlayForm : Form
     private string _status = "";
     private bool _statusIsError;
     private int _dpi;
+    private Rectangle _viewport;
+    private int _scroll;
+    private int _scrollMax;
+    private bool _focusLost;
+    private bool _focusFailureLogged;
+    private long _lastPadActionAt;
     private int _selected;
     private bool _busy;
     private string? _targetDisplayGdiName;
@@ -81,8 +88,15 @@ public sealed class OverlayForm : Form
         PlaceInCorner();
     }
 
-    /// <summary>Acción del mando (o del teclado) mientras el overlay está abierto.</summary>
-    public void HandleAction(PadAction action)
+    /// <summary>Acción que llega del mando (XInput).</summary>
+    public void HandlePadAction(PadAction action)
+    {
+        _lastPadActionAt = Environment.TickCount64;
+        HandleAction(action);
+    }
+
+    /// <summary>Acción del mando, del teclado o del ratón mientras el overlay está abierto.</summary>
+    private void HandleAction(PadAction action)
     {
         _idleTimer.Stop();
         _idleTimer.Start();
@@ -155,6 +169,15 @@ public sealed class OverlayForm : Form
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        // Si Steam traduce el mando a teclas (configuración de escritorio de Steam Input), la misma pulsación llega
+        // dos veces: por XInput y como tecla. Mientras se use el mando, se ignoran las teclas.
+        if (Environment.TickCount64 - _lastPadActionAt < 500)
+        {
+            e.Handled = true;
+            base.OnKeyDown(e);
+            return;
+        }
+
         PadAction? action = e.KeyCode switch
         {
             Keys.Up => PadAction.Up,
@@ -174,7 +197,7 @@ public sealed class OverlayForm : Form
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
-        var line = _lines.FirstOrDefault(l => l.RowIndex >= 0 && l.Bounds.Contains(e.Location));
+        var line = _lines.FirstOrDefault(l => l.RowIndex >= 0 && _viewport.Contains(e.Location) && OnScreen(l).Contains(e.Location));
         if (line != null)
         {
             Select(line.RowIndex);
@@ -185,8 +208,9 @@ public sealed class OverlayForm : Form
     protected override void OnDeactivate(EventArgs e)
     {
         base.OnDeactivate(e);
-        // Si el usuario hace clic en otro sitio, el overlay se va.
-        if (!_busy && !_focusTimer.Enabled)
+        // Si el usuario hace clic con el ratón en otro sitio, el overlay se va. Si el foco se lo ha quitado
+        // Big Picture, el vigilante de foco lo recupera.
+        if (!_busy && MouseButtons != MouseButtons.None)
         {
             BeginInvoke(Close);
         }
@@ -265,8 +289,38 @@ public sealed class OverlayForm : Form
             return;
         }
         _selected = Math.Clamp(index, 0, _items.Count - 1);
+        ScrollToSelected();
         Invalidate();
     }
+
+    /// <summary>Desplaza la lista para que la fila elegida (y la cabecera de su sección, si es la primera) se vea.</summary>
+    private void ScrollToSelected()
+    {
+        var index = _lines.FindIndex(l => l.RowIndex == _selected);
+        if (index < 0 || _viewport.Height <= 0)
+        {
+            return;
+        }
+
+        var top = _lines[index].Bounds.Top;
+        if (index > 0 && _lines[index - 1].Scrolls && _lines[index - 1].RowIndex < 0)
+        {
+            top = _lines[index - 1].Bounds.Top;
+        }
+        var bottom = _lines[index].Bounds.Bottom;
+
+        if (top - _viewport.Top < _scroll)
+        {
+            _scroll = top - _viewport.Top;
+        }
+        else if (bottom - _viewport.Top > _scroll + _viewport.Height)
+        {
+            _scroll = bottom - _viewport.Top - _viewport.Height;
+        }
+        _scroll = Math.Clamp(_scroll, 0, _scrollMax);
+    }
+
+    private Rectangle OnScreen(Line line) => line.Scrolls ? line.Bounds with { Y = line.Bounds.Y - _scroll } : line.Bounds;
 
     private void SetStatus(string text, bool error = false)
     {
@@ -350,7 +404,10 @@ public sealed class OverlayForm : Form
     // Disposición y dibujo
     // ------------------------------------------------------------------
 
-    /// <summary>Calcula la posición de cada línea y el tamaño de la ventana con el DPI actual.</summary>
+    /// <summary>
+    /// Calcula la posición de cada línea y el tamaño de la ventana con el DPI actual. Si la lista no cabe en la
+    /// pantalla, se queda con la altura disponible y se desplaza siguiendo a la fila elegida.
+    /// </summary>
     private void Relayout()
     {
         _fonts?.Dispose();
@@ -359,8 +416,9 @@ public sealed class OverlayForm : Form
         _lines.Clear();
 
         var padX = Px(24);
+        var padY = Px(20);
         var rowPadX = Px(14);
-        var rowHeight = Px(48);
+        var rowHeight = Px(46);
         var bulletWidth = TextRenderer.MeasureText("●  ", f.Row, Size.Empty, TextFlags).Width;
 
         // Ancho: el del texto más largo, entre 420 y 680 px lógicos.
@@ -374,48 +432,66 @@ public sealed class OverlayForm : Form
             .Max();
         var contentWidth = Math.Clamp(widest, Px(420), Px(680));
 
-        var y = Px(20);
-        void Add(string text, Font font, Color color, int height, int marginTop = 0, int rowIndex = -1)
+        // Las fuentes Semibold miden algo menos de lo que ocupan: se deja un margen para que no se monten.
+        int LineHeight(Font font) => TextRenderer.MeasureText("ÁgÑy", font, Size.Empty, TextFlags).Height + Px(4);
+
+        var y = padY;
+        void Add(string text, Font font, Color color, int height, int marginTop = 0, int rowIndex = -1, bool scrolls = false)
         {
             y += marginTop;
-            _lines.Add(new Line(new Rectangle(padX, y, contentWidth, height), text, font, color, rowIndex));
+            _lines.Add(new Line(new Rectangle(padX, y, contentWidth, height), text, font, color, rowIndex, scrolls));
             y += height;
         }
-        int LineHeight(Font font) => TextRenderer.MeasureText("Ág", font, Size.Empty, TextFlags).Height;
 
+        // ----- Cabecera fija -----
         Add("Console Mode", f.Title, TextColor, LineHeight(f.Title));
-        Add(Subtitle, f.Small, MutedColor, LineHeight(f.Small), Px(2));
+        Add(Subtitle, f.Small, MutedColor, LineHeight(f.Small));
+        y += Px(6);
 
+        // ----- Lista (se desplaza) -----
+        var listTop = y;
         var sections = new[]
         {
             (ItemKind.SwitchToPc, "🎮  Modo consola activo"),
             (ItemKind.Audio, "🔊  Audio"),
             (ItemKind.Display, "🖥  Pantalla principal"),
         };
+        var firstSection = true;
         foreach (var (kind, title) in sections)
         {
             if (!_items.Any(i => i.Kind == kind))
             {
                 continue;
             }
-            Add(title, f.Section, MutedColor, LineHeight(f.Section), Px(18));
-            y += Px(4);
+            Add(title, f.Section, MutedColor, LineHeight(f.Section) + Px(4), firstSection ? 0 : Px(14), scrolls: true);
+            firstSection = false;
             for (var i = 0; i < _items.Count; i++)
             {
                 if (_items[i].Kind == kind)
                 {
-                    Add(_items[i].Name, f.Row, TextColor, rowHeight, Px(2), i);
+                    Add(_items[i].Name, f.Row, TextColor, rowHeight, Px(2), i, scrolls: true);
                 }
             }
         }
+        var listHeight = y - listTop;
 
+        // ----- Pie fijo -----
+        var footerHeight = Px(14) + (_status.Length > 0 ? LineHeight(f.Small) + Px(4) : 0) + LineHeight(f.Small);
+        var maxClientHeight = TargetArea().Height - 2 * Px(40);
+        var viewportHeight = Math.Max(rowHeight * 2, Math.Min(listHeight, maxClientHeight - listTop - footerHeight - padY));
+        _viewport = new Rectangle(0, listTop, contentWidth + padX * 2, viewportHeight);
+        _scrollMax = Math.Max(0, listHeight - viewportHeight);
+
+        y = listTop + viewportHeight + Px(14);
         if (_status.Length > 0)
         {
-            Add(_status, f.Small, MutedColor, LineHeight(f.Small), Px(14));
+            Add(_status, f.Small, MutedColor, LineHeight(f.Small), 0);
+            y += Px(4);
         }
-        Add(Hint, f.Small, MutedColor, LineHeight(f.Small), Px(_status.Length > 0 ? 6 : 14));
+        Add(Hint, f.Small, MutedColor, LineHeight(f.Small));
 
-        ClientSize = new Size(contentWidth + padX * 2, y + Px(20));
+        ClientSize = new Size(contentWidth + padX * 2, y + padY);
+        ScrollToSelected();
         Invalidate();
     }
 
@@ -437,26 +513,55 @@ public sealed class OverlayForm : Form
 
         foreach (var line in _lines)
         {
-            if (line.RowIndex < 0)
+            var bounds = OnScreen(line);
+            if (line.Scrolls)
             {
-                var color = line.Text == _status && _statusIsError ? ErrorColor : line.Color;
-                TextRenderer.DrawText(g, line.Text, line.Font, line.Bounds, color, TextFlags | TextFormatFlags.EndEllipsis);
-                continue;
+                if (bounds.Bottom <= _viewport.Top || bounds.Top >= _viewport.Bottom)
+                {
+                    continue;
+                }
+                g.SetClip(_viewport);
             }
 
-            var item = _items[line.RowIndex];
-            var selected = line.RowIndex == _selected;
-            if (selected)
+            if (line.RowIndex < 0)
             {
-                using var brush = new SolidBrush(Accent);
-                g.FillRectangle(brush, line.Bounds);
+                var color = !line.Scrolls && line.Text == _status && _statusIsError ? ErrorColor : line.Color;
+                TextRenderer.DrawText(g, line.Text, line.Font, bounds, color, TextFlags | TextFormatFlags.EndEllipsis);
             }
-            var fore = selected ? Color.White : TextColor;
-            var bulletRect = new Rectangle(line.Bounds.X + rowPadX, line.Bounds.Y, bulletWidth, line.Bounds.Height);
-            var textRect = Rectangle.FromLTRB(bulletRect.Right, line.Bounds.Y, line.Bounds.Right - rowPadX, line.Bounds.Bottom);
-            var bullet = item.Kind == ItemKind.SwitchToPc ? "↩" : item.IsCurrent ? "●" : "○";
-            TextRenderer.DrawText(g, bullet, line.Font, bulletRect, fore, TextFlags);
-            TextRenderer.DrawText(g, item.Name, line.Font, textRect, fore, TextFlags | TextFormatFlags.EndEllipsis);
+            else
+            {
+                var item = _items[line.RowIndex];
+                var selected = line.RowIndex == _selected;
+                if (selected)
+                {
+                    using var brush = new SolidBrush(Accent);
+                    g.FillRectangle(brush, bounds);
+                }
+                var fore = selected ? Color.White : TextColor;
+                var bulletRect = new Rectangle(bounds.X + rowPadX, bounds.Y, bulletWidth, bounds.Height);
+                var textRect = Rectangle.FromLTRB(bulletRect.Right, bounds.Y, bounds.Right - rowPadX, bounds.Bottom);
+                var bullet = item.Kind == ItemKind.SwitchToPc ? "↩" : item.IsCurrent ? "●" : "○";
+                TextRenderer.DrawText(g, bullet, line.Font, bulletRect, fore, TextFlags);
+                TextRenderer.DrawText(g, item.Name, line.Font, textRect, fore, TextFlags | TextFormatFlags.EndEllipsis);
+            }
+
+            if (line.Scrolls)
+            {
+                g.ResetClip();
+            }
+        }
+
+        // Flechas cuando hay más opciones por encima o por debajo.
+        var arrowRect = new Rectangle(_viewport.Right - Px(24) - Px(30), 0, Px(30), Px(24));
+        if (_scroll > 0)
+        {
+            TextRenderer.DrawText(g, "▲", _fonts.Small, arrowRect with { Y = _viewport.Top - Px(24) }, MutedColor,
+                TextFormatFlags.Right | TextFormatFlags.Bottom | TextFormatFlags.NoPadding);
+        }
+        if (_scroll < _scrollMax)
+        {
+            TextRenderer.DrawText(g, "▼", _fonts.Small, arrowRect with { Y = _viewport.Bottom }, MutedColor,
+                TextFormatFlags.Right | TextFormatFlags.Top | TextFormatFlags.NoPadding);
         }
     }
 
@@ -494,31 +599,43 @@ public sealed class OverlayForm : Form
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Toma el foco y, si Windows no lo concede a la primera, reintenta cada 50 ms durante 3 s. Mientras Big Picture
-    /// tenga el foco, Steam sigue moviéndose con el mismo mando, así que esto tiene que ser inmediato.
+    /// Toma el foco y lo vigila cada 100 ms mientras el overlay está abierto. Mientras Big Picture tenga el foco,
+    /// Steam se mueve con el mismo mando, y a veces Steam lo recupera después de que el overlay lo haya cogido.
     /// </summary>
     private void GrabFocus()
     {
         _focusClock.Restart();
-        if (WindowFocus.ForceForeground(Handle))
-        {
-            Log.Info("Overlay: foco obtenido al instante");
-            return;
-        }
+        Log.Info(WindowFocus.ForceForeground(Handle)
+            ? "Overlay: foco obtenido al instante"
+            : $"Overlay: no se ha obtenido el foco a la primera (lo tiene la ventana 0x{WindowFocus.Foreground:X})");
+        _focusLost = WindowFocus.Foreground != Handle;
         _focusTimer.Start();
     }
 
     private void EnsureFocus()
     {
-        if (WindowFocus.ForceForeground(Handle))
+        if (WindowFocus.Foreground == Handle)
         {
-            _focusTimer.Stop();
-            Log.Info($"Overlay: foco obtenido tras {_focusClock.ElapsedMilliseconds} ms");
+            if (_focusLost)
+            {
+                Log.Info($"Overlay: foco recuperado tras {_focusClock.ElapsedMilliseconds} ms");
+                _focusLost = false;
+                _focusFailureLogged = false;
+            }
+            return;
         }
-        else if (_focusClock.Elapsed > TimeSpan.FromSeconds(3))
+
+        if (!_focusLost)
         {
-            _focusTimer.Stop();
-            Log.Error($"Overlay: Windows no ha dado el foco al overlay (lo tiene la ventana 0x{WindowFocus.Foreground:X})");
+            _focusLost = true;
+            _focusClock.Restart();
+            Log.Info($"Overlay: la ventana 0x{WindowFocus.Foreground:X} le ha quitado el foco; recuperándolo");
+        }
+
+        if (!WindowFocus.ForceForeground(Handle) && !_focusFailureLogged && _focusClock.Elapsed > TimeSpan.FromSeconds(3))
+        {
+            _focusFailureLogged = true;
+            Log.Error($"Overlay: Windows no devuelve el foco al overlay (lo tiene la ventana 0x{WindowFocus.Foreground:X})");
         }
     }
 
