@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace ConsoleMode.Native;
 
@@ -45,6 +47,32 @@ public static class WindowFocus
         }
 
         return GetForegroundWindow() == hwnd;
+    }
+
+    /// <summary>Descripción legible de una ventana para el log: programa, clase y título.</summary>
+    public static string Describe(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            return "ninguna ventana";
+        }
+
+        var className = new StringBuilder(256);
+        GetClassName(hwnd, className, className.Capacity);
+        var title = new StringBuilder(256);
+        GetWindowText(hwnd, title, title.Capacity);
+        GetWindowThreadProcessId(hwnd, out var pid);
+        string process;
+        try
+        {
+            using var p = Process.GetProcessById((int)pid);
+            process = p.ProcessName + ".exe";
+        }
+        catch
+        {
+            process = $"pid {pid}";
+        }
+        return $"0x{hwnd:X} {process} [{className}] «{title}»";
     }
 
     /// <summary>Devuelve el foco a la ventana que lo tenía (Big Picture o el juego).</summary>
@@ -96,4 +124,49 @@ public static class WindowFocus
 
     [DllImport("user32.dll")]
     private static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extraInfo);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hwnd, StringBuilder className, int maxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int maxCount);
+}
+
+/// <summary>
+/// Avisa al instante cuando otra ventana pasa a primer plano (SetWinEventHook con EVENT_SYSTEM_FOREGROUND).
+/// El aviso llega por la cola de mensajes del hilo que lo crea, así que hay que crearlo en el hilo de UI.
+/// </summary>
+public sealed class ForegroundWatcher : IDisposable
+{
+    private readonly WinEventProc _callback; // referencia viva para que el GC no la recoja
+    private IntPtr _hook;
+
+    public ForegroundWatcher(Action<IntPtr> onForegroundChanged)
+    {
+        _callback = (_, _, hwnd, _, _, _, _) => onForegroundChanged(hwnd);
+        _hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, _callback, 0, 0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    }
+
+    public void Dispose()
+    {
+        if (_hook != IntPtr.Zero)
+        {
+            UnhookWinEvent(_hook);
+            _hook = IntPtr.Zero;
+        }
+    }
+
+    private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+    private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+    private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
+
+    private delegate void WinEventProc(IntPtr hook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr module, WinEventProc callback,
+        uint processId, uint threadId, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnhookWinEvent(IntPtr hook);
 }

@@ -42,6 +42,7 @@ public sealed class OverlayForm : Form
 
     private readonly System.Windows.Forms.Timer _idleTimer;
     private readonly System.Windows.Forms.Timer _focusTimer = new() { Interval = 100 };
+    private ForegroundWatcher? _foregroundWatcher;
     private readonly System.Diagnostics.Stopwatch _focusClock = new();
     private readonly IntPtr _previousForeground;
     private readonly ModeSwitcher _switcher;
@@ -220,6 +221,8 @@ public sealed class OverlayForm : Form
     {
         _idleTimer.Dispose();
         _focusTimer.Dispose();
+        _foregroundWatcher?.Dispose();
+        _foregroundWatcher = null;
         // Solo devolvemos el foco si seguía en el overlay (si el usuario hizo clic en otra ventana, la respetamos).
         if (WindowFocus.Foreground == Handle)
         {
@@ -599,21 +602,41 @@ public sealed class OverlayForm : Form
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Toma el foco y lo vigila cada 100 ms mientras el overlay está abierto. Mientras Big Picture tenga el foco,
-    /// Steam se mueve con el mismo mando, y a veces Steam lo recupera después de que el overlay lo haya cogido.
+    /// Toma el foco y lo vigila mientras el overlay está abierto. Steam vuelve a poner Big Picture delante de vez en
+    /// cuando, y mientras lo tiene se mueve con el mismo mando. Windows avisa al instante de cada cambio de primer
+    /// plano y el foco se recupera en ese momento; el temporizador de 100 ms queda como respaldo.
     /// </summary>
     private void GrabFocus()
     {
         _focusClock.Restart();
         Log.Info(WindowFocus.ForceForeground(Handle)
             ? "Overlay: foco obtenido al instante"
-            : $"Overlay: no se ha obtenido el foco a la primera (lo tiene la ventana 0x{WindowFocus.Foreground:X})");
+            : $"Overlay: no se ha obtenido el foco a la primera (lo tiene {WindowFocus.Describe(WindowFocus.Foreground)})");
         _focusLost = WindowFocus.Foreground != Handle;
+        _foregroundWatcher ??= new ForegroundWatcher(OnForegroundChanged);
         _focusTimer.Start();
+    }
+
+    private void OnForegroundChanged(IntPtr hwnd)
+    {
+        if (IsDisposed || hwnd == Handle)
+        {
+            return;
+        }
+        Log.Info($"Overlay: {WindowFocus.Describe(hwnd)} le ha quitado el foco; recuperándolo");
+        _focusLost = true;
+        _focusClock.Restart();
+        // Se deja terminar el cambio de foco en curso antes de recuperarlo.
+        BeginInvoke(EnsureFocus);
     }
 
     private void EnsureFocus()
     {
+        if (IsDisposed)
+        {
+            return;
+        }
+
         if (WindowFocus.Foreground == Handle)
         {
             if (_focusLost)
@@ -627,15 +650,22 @@ public sealed class OverlayForm : Form
 
         if (!_focusLost)
         {
+            // Respaldo: cambio de foco que no ha llegado por el aviso de Windows.
             _focusLost = true;
             _focusClock.Restart();
-            Log.Info($"Overlay: la ventana 0x{WindowFocus.Foreground:X} le ha quitado el foco; recuperándolo");
+            Log.Info($"Overlay: {WindowFocus.Describe(WindowFocus.Foreground)} le ha quitado el foco (detectado por el temporizador)");
         }
 
-        if (!WindowFocus.ForceForeground(Handle) && !_focusFailureLogged && _focusClock.Elapsed > TimeSpan.FromSeconds(3))
+        if (WindowFocus.ForceForeground(Handle))
+        {
+            Log.Info($"Overlay: foco recuperado tras {_focusClock.ElapsedMilliseconds} ms");
+            _focusLost = false;
+            _focusFailureLogged = false;
+        }
+        else if (!_focusFailureLogged && _focusClock.Elapsed > TimeSpan.FromSeconds(3))
         {
             _focusFailureLogged = true;
-            Log.Error($"Overlay: Windows no devuelve el foco al overlay (lo tiene la ventana 0x{WindowFocus.Foreground:X})");
+            Log.Error($"Overlay: Windows no devuelve el foco al overlay (lo tiene {WindowFocus.Describe(WindowFocus.Foreground)})");
         }
     }
 
