@@ -8,12 +8,18 @@ namespace ConsoleMode.UI;
 /// Overlay para el mando en la esquina inferior derecha: cambia la salida de audio y la pantalla principal
 /// al momento. Estos cambios son temporales: no se guardan en los perfiles de los modos.
 /// </summary>
+/// <remarks>
+/// Todo se dibuja con el escalado (DPI) de la pantalla donde aparece, con fuentes en píxeles calculadas a mano.
+/// Así no depende del escalado de la pantalla principal ni del reescalado automático de WinForms, que hacía que
+/// en una TV 4K al 200 % el overlay saliera pequeño y cortado hasta que se reconstruía.
+/// </remarks>
 public sealed class OverlayForm : Form
 {
     private static readonly Color Background = Color.FromArgb(28, 28, 36);
     private static readonly Color Accent = Color.FromArgb(76, 70, 229);
     private static readonly Color TextColor = Color.FromArgb(235, 235, 245);
     private static readonly Color MutedColor = Color.FromArgb(150, 150, 170);
+    private static readonly Color ErrorColor = Color.FromArgb(255, 120, 120);
     private static readonly TimeSpan IdleClose = TimeSpan.FromSeconds(20);
 
     private enum ItemKind
@@ -24,11 +30,15 @@ public sealed class OverlayForm : Form
 
     private sealed record Item(ItemKind Kind, string Id, string Name, bool IsCurrent);
 
-    private readonly TableLayoutPanel _list;
-    private readonly Label _status;
     private readonly System.Windows.Forms.Timer _idleTimer;
     private readonly List<(Item Item, Label Row)> _rows = new();
+    private readonly List<Font> _fonts = new();
     private readonly IntPtr _previousForeground;
+    private TableLayoutPanel _list = new();
+    private Label _status = new();
+    private string _statusText = "";
+    private bool _statusIsError;
+    private int _dpi;
     private int _selected;
     private bool _busy;
     private string? _targetDisplayGdiName;
@@ -43,50 +53,22 @@ public sealed class OverlayForm : Form
         ShowInTaskbar = false;
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
+        AutoScaleMode = AutoScaleMode.None;
         BackColor = Background;
         ForeColor = TextColor;
-                Font = new Font("Segoe UI", 15f);
-        Padding = Pad(20, 16, 20, 16);
         AutoSize = true;
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
         KeyPreview = true;
 
-        var layout = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Dock = DockStyle.Fill };
-        layout.Controls.Add(new Label
-        {
-            Text = "Console Mode",
-            AutoSize = true,
-            Font = new Font("Segoe UI Semibold", 17f),
-            Margin = Pad(0, 0, 0, 0),
-        });
-        layout.Controls.Add(new Label
-        {
-            Text = "Cambios temporales: no se guardan en tus modos",
-            AutoSize = true,
-            ForeColor = MutedColor,
-            Font = new Font("Segoe UI", 11f),
-            Margin = Pad(0, 0, 0, 10),
-        });
-
-        _list = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Margin = Padding.Empty };
-        layout.Controls.Add(_list);
-
-        _status = new Label { AutoSize = true, ForeColor = MutedColor, Font = new Font("Segoe UI", 11f), Margin = Pad(0, 10, 0, 0) };
-        layout.Controls.Add(_status);
-        layout.Controls.Add(new Label
-        {
-            Text = "Ⓐ Elegir     Ⓑ Cerrar     ↑↓ Moverse",
-            AutoSize = true,
-            ForeColor = MutedColor,
-            Font = new Font("Segoe UI", 11f),
-            Margin = Pad(0, 6, 0, 0),
-        });
-        Controls.Add(layout);
+        // Se construye con el escalado de la pantalla de destino y se coloca ya en su esquina antes de mostrarse,
+        // para que la ventana nazca ahí y Windows no le cambie el DPI.
+        _dpi = DpiOf(TargetArea());
 
         _idleTimer = new System.Windows.Forms.Timer { Interval = (int)IdleClose.TotalMilliseconds };
         _idleTimer.Tick += (_, _) => Close();
 
-        Reload();
+        BuildUi();
+        PlaceInCorner();
     }
 
     /// <summary>Acción del mando (o del teclado) mientras el overlay está abierto.</summary>
@@ -120,9 +102,27 @@ public sealed class OverlayForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        // Por si Windows ha puesto la ventana en otra pantalla que la calculada.
+        if (DeviceDpi != _dpi)
+        {
+            _dpi = DeviceDpi;
+            BuildUi();
+        }
         PlaceInCorner();
         WindowFocus.ForceForeground(Handle);
         _idleTimer.Start();
+    }
+
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        // Al pasar a una pantalla con otro escalado lo reconstruimos nosotros, sin el reescalado de WinForms.
+        e.Cancel = true;
+        if (e.DeviceDpiNew != _dpi)
+        {
+            _dpi = e.DeviceDpiNew;
+            BuildUi();
+            PlaceInCorner();
+        }
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -172,7 +172,50 @@ public sealed class OverlayForm : Form
         base.OnFormClosed(e);
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+        {
+            _fonts.ForEach(f => f.Dispose());
+            _fonts.Clear();
+        }
+    }
+
     // ------------------------------------------------------------------
+    // Construcción de la interfaz con el escalado actual (_dpi)
+    // ------------------------------------------------------------------
+
+    private void BuildUi()
+    {
+        SuspendLayout();
+        var oldControls = Controls.Cast<Control>().ToList();
+        Controls.Clear();
+        oldControls.ForEach(c => c.Dispose());
+        var oldFonts = _fonts.ToList();
+        _fonts.Clear();
+
+        Padding = Pad(22, 18, 22, 18);
+        Font = MakeFont(15f);
+
+        var layout = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Dock = DockStyle.Fill, Margin = Padding.Empty };
+        layout.Controls.Add(MakeLabel("Console Mode", MakeFont(17f, FontStyle.Bold), TextColor, Pad(0, 0, 0, 0)));
+        layout.Controls.Add(MakeLabel("Cambios temporales: no se guardan en tus modos", MakeFont(11f), MutedColor, Pad(0, 2, 0, 12)));
+
+        _list = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Margin = Padding.Empty };
+        layout.Controls.Add(_list);
+
+        _status = MakeLabel("", MakeFont(11f), MutedColor, Pad(0, 12, 0, 0));
+        layout.Controls.Add(_status);
+        layout.Controls.Add(MakeLabel("Ⓐ Elegir     Ⓑ Cerrar     ↑↓ Moverse", MakeFont(11f), MutedColor, Pad(0, 6, 0, 0)));
+        Controls.Add(layout);
+
+        Reload();
+        SetStatus(_statusText, _statusIsError);
+        ResumeLayout(true);
+
+        oldFonts.ForEach(f => f.Dispose());
+    }
 
     private void Reload()
     {
@@ -197,11 +240,13 @@ public sealed class OverlayForm : Form
         }
 
         _list.SuspendLayout();
+        var oldRows = _list.Controls.Cast<Control>().ToList();
         _list.Controls.Clear();
+        oldRows.ForEach(c => c.Dispose());
         _rows.Clear();
         AddSection("🔊  Audio", items.Where(i => i.Kind == ItemKind.Audio));
         AddSection("🖥  Pantalla principal", items.Where(i => i.Kind == ItemKind.Display));
-        _list.ResumeLayout();
+        _list.ResumeLayout(true);
 
         var index = _rows.FindIndex(r => (r.Item.Kind, r.Item.Id) == selectedKey);
         if (index < 0)
@@ -213,26 +258,23 @@ public sealed class OverlayForm : Form
 
     private void AddSection(string title, IEnumerable<Item> items)
     {
-        _list.Controls.Add(new Label
-        {
-            Text = title,
-            AutoSize = true,
-            ForeColor = MutedColor,
-            Font = new Font("Segoe UI Semibold", 12f),
-            Margin = Pad(0, _rows.Count == 0 ? 0 : 12, 0, 4),
-        });
+        var first = _list.Controls.Count == 0;
+        _list.Controls.Add(MakeLabel(title, MakeFont(12f, FontStyle.Bold), MutedColor, Pad(0, first ? 0 : 14, 0, 4)));
 
+        var rowFont = MakeFont(15f);
         foreach (var item in items)
         {
             var row = new Label
             {
                 Text = $"{(item.IsCurrent ? "●" : "○")}  {item.Name}",
+                Font = rowFont,
                 AutoSize = false,
-                Size = new Size(Px(460), Px(44)),
+                Size = new Size(Px(480), Px(46)),
                 TextAlign = ContentAlignment.MiddleLeft,
-                Padding = Pad(10, 0, 10, 0),
+                Padding = Pad(12, 0, 12, 0),
                 Margin = Pad(0, 1, 0, 1),
                 AutoEllipsis = true,
+                UseMnemonic = false,
                 Cursor = Cursors.Hand,
             };
             var index = _rows.Count;
@@ -261,6 +303,15 @@ public sealed class OverlayForm : Form
         }
     }
 
+    private void SetStatus(string text, bool error = false)
+    {
+        _statusText = text;
+        _statusIsError = error;
+        _status.Text = text;
+        _status.ForeColor = error ? ErrorColor : MutedColor;
+        _status.Visible = text.Length > 0;
+    }
+
     private async Task ApplySelectedAsync()
     {
         if (_rows.Count == 0)
@@ -270,31 +321,29 @@ public sealed class OverlayForm : Form
 
         var item = _rows[_selected].Item;
         _busy = true;
-        _status.ForeColor = MutedColor;
-        _status.Text = "Aplicando…";
+        SetStatus("Aplicando…");
         try
         {
             if (item.Kind == ItemKind.Audio)
             {
                 await Task.Run(() => AudioManager.SetDefaultOutput(item.Id));
-                _status.Text = $"Audio: {item.Name}";
+                SetStatus($"Audio: {item.Name}");
             }
             else
             {
                 await Task.Run(() => DisplayManager.SetPrimary(item.Id));
                 _targetDisplayGdiName = DisplayManager.Find(item.Id)?.GdiName;
-                _status.Text = $"Pantalla principal: {item.Name}";
+                SetStatus($"Pantalla principal: {item.Name}");
                 if (SteamBigPicture.IsOpen)
                 {
                     _ = Task.Run(() => SteamBigPicture.EnsureOnDisplayAsync(item.Id, TimeSpan.FromSeconds(5)));
                 }
             }
-            Log.Info($"Overlay: {_status.Text} (temporal)");
+            Log.Info($"Overlay: {_statusText} (temporal)");
         }
         catch (Exception ex)
         {
-            _status.ForeColor = Color.FromArgb(255, 120, 120);
-            _status.Text = ex.Message;
+            SetStatus(ex.Message, error: true);
             Log.Error("Overlay: no se pudo aplicar el cambio", ex);
         }
         finally
@@ -311,34 +360,93 @@ public sealed class OverlayForm : Form
         WindowFocus.ForceForeground(Handle);
     }
 
-    /// <summary>Esquina inferior derecha de la pantalla donde se está jugando (o de la recién elegida).</summary>
+    // ------------------------------------------------------------------
+    // Posición y escalado
+    // ------------------------------------------------------------------
+
+    /// <summary>Pantalla donde se está jugando (o la recién elegida como principal).</summary>
+    private Rectangle TargetArea()
+    {
+        if (_targetDisplayGdiName != null)
+        {
+            var target = DisplayManager.GetDisplays().FirstOrDefault(d => d.GdiName == _targetDisplayGdiName);
+            if (target != null)
+            {
+                return target.Bounds;
+            }
+        }
+        return _previousForeground != IntPtr.Zero
+            ? Screen.FromHandle(_previousForeground).Bounds
+            : Screen.FromPoint(Cursor.Position).Bounds;
+    }
+
+    /// <summary>Esquina inferior derecha de la pantalla de destino.</summary>
     private void PlaceInCorner()
     {
-        Rectangle area;
-        var target = _targetDisplayGdiName == null
-            ? null
-            : DisplayManager.GetDisplays().FirstOrDefault(d => d.GdiName == _targetDisplayGdiName);
-        if (target != null)
-        {
-            area = target.Bounds;
-        }
-        else
-        {
-            area = _previousForeground != IntPtr.Zero ? Screen.FromHandle(_previousForeground).Bounds : Screen.FromPoint(Cursor.Position).Bounds;
-        }
-
+        var area = TargetArea();
         var margin = Px(40);
         Location = new Point(area.Right - Width - margin, area.Bottom - Height - margin);
     }
 
-    /// <summary>Píxeles lógicos (96 DPI) a píxeles reales: en una TV 4K al 200 % todo se ve al doble.</summary>
-    private int Px(int value) => (int)Math.Round(value * DeviceDpi / 96f);
+    private static int DpiOf(Rectangle area)
+    {
+        try
+        {
+            var monitor = MonitorFromPoint(new POINT { X = area.Left + area.Width / 2, Y = area.Top + area.Height / 2 }, MONITOR_DEFAULTTONEAREST);
+            if (GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, out var dpiX, out _) == 0 && dpiX > 0)
+            {
+                return (int)dpiX;
+            }
+        }
+        catch
+        {
+            // shcore.dll no disponible: se usa el escalado del sistema.
+        }
+        return 96;
+    }
+
+    /// <summary>Píxeles lógicos (96 DPI) a píxeles reales de la pantalla del overlay.</summary>
+    private int Px(int value) => (int)Math.Round(value * _dpi / 96f);
 
     private Padding Pad(int left, int top, int right, int bottom) => new(Px(left), Px(top), Px(right), Px(bottom));
 
+    /// <summary>Fuente en píxeles (1 pt = 1/72") para que WinForms no la reescale con el DPI del sistema.</summary>
+    private Font MakeFont(float points, FontStyle style = FontStyle.Regular)
+    {
+        var family = style.HasFlag(FontStyle.Bold) ? "Segoe UI Semibold" : "Segoe UI";
+        var font = new Font(family, points * _dpi / 72f, style & ~FontStyle.Bold, GraphicsUnit.Pixel);
+        _fonts.Add(font);
+        return font;
+    }
+
+    private static Label MakeLabel(string text, Font font, Color color, Padding margin) => new()
+    {
+        Text = text,
+        Font = font,
+        ForeColor = color,
+        AutoSize = true,
+        Margin = margin,
+        UseMnemonic = false,
+    };
+
     private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     private const int DWMWCP_ROUND = 2;
+    private const uint MONITOR_DEFAULTTONEAREST = 2;
+    private const int MDT_EFFECTIVE_DPI = 0;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
+
+    [DllImport("shcore.dll")]
+    private static extern int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
 }
