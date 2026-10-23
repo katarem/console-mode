@@ -1,0 +1,15 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+publish/
+
+# Flutter / Dart (ver también mobile/.gitignore)
+.dart_tool/
+
+# SO / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
