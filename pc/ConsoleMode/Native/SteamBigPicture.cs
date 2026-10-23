@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using ConsoleMode.Core;
 
 namespace ConsoleMode.Native;
@@ -17,12 +18,13 @@ public static class SteamBigPicture
 
     public static async Task CloseAsync()
     {
-        if (FindWindow() == IntPtr.Zero)
+        if (!IsSteamRunning())
         {
             return;
         }
 
-        Log.Info("Cerrando Steam Big Picture");
+        // Aunque no encontremos la ventana, se lo pedimos a Steam: si Big Picture no está abierto no hace nada.
+        Log.Info(IsOpen ? "Cerrando Steam Big Picture" : "Big Picture no detectado; se pide a Steam que lo cierre igualmente");
         try
         {
             Process.Start(new ProcessStartInfo("steam://close/bigpicture") { UseShellExecute = true });
@@ -32,21 +34,47 @@ public static class SteamBigPicture
             Log.Error("steam://close/bigpicture falló", ex);
         }
 
-        // Si Steam no responde al protocolo, cerramos la ventana directamente.
-        for (var i = 0; i < 10; i++)
+        if (await WaitUntilClosedAsync(TimeSpan.FromSeconds(4)))
         {
-            await Task.Delay(300);
-            if (FindWindow() == IntPtr.Zero)
-            {
-                return;
-            }
+            return;
         }
 
+        // Si Steam no responde al protocolo, cerramos la ventana como haría Alt+F4.
         var hwnd = FindWindow();
         if (hwnd != IntPtr.Zero)
         {
+            Log.Info("Steam no ha cerrado Big Picture; se envía WM_CLOSE a la ventana");
             PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
         }
+
+        if (!await WaitUntilClosedAsync(TimeSpan.FromSeconds(4)))
+        {
+            throw new InvalidOperationException("Steam no ha cerrado Big Picture.");
+        }
+    }
+
+    private static async Task<bool> WaitUntilClosedAsync(TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (FindWindow() != IntPtr.Zero)
+        {
+            if (DateTime.UtcNow > deadline)
+            {
+                return false;
+            }
+            await Task.Delay(250);
+        }
+        return true;
+    }
+
+    private static bool IsSteamRunning()
+    {
+        var processes = Process.GetProcessesByName("steam");
+        foreach (var p in processes)
+        {
+            p.Dispose();
+        }
+        return processes.Length > 0;
     }
 
     /// <summary>
@@ -105,8 +133,9 @@ public static class SteamBigPicture
     public static bool IsOpen => FindWindow() != IntPtr.Zero;
 
     /// <summary>
-    /// Busca la ventana principal de Big Picture: pertenece a steamwebhelper/steam, su clase es SDL_app
-    /// y su título contiene "Big Picture" (en español: "Modo Big Picture de Steam").
+    /// Busca la ventana principal de Big Picture: pertenece a steamwebhelper/steam y su título contiene
+    /// "Big Picture" (en español: "Modo Big Picture de Steam"). Steam a veces separa las dos palabras con
+    /// un espacio de no separación (U+00A0), así que se acepta cualquier separador Unicode.
     /// </summary>
     private static IntPtr FindWindow()
     {
@@ -139,7 +168,7 @@ public static class SteamBigPicture
 
             var title = new StringBuilder(256);
             GetWindowText(hwnd, title, title.Capacity);
-            if (title.ToString().Contains("Big Picture", StringComparison.OrdinalIgnoreCase))
+            if (BigPictureTitle.IsMatch(title.ToString()))
             {
                 found = hwnd;
                 return false;
@@ -148,6 +177,8 @@ public static class SteamBigPicture
         }, IntPtr.Zero);
         return found;
     }
+
+    private static readonly Regex BigPictureTitle = new(@"Big\p{Z}+Picture", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private const uint WM_CLOSE = 0x0010;
     private const int SW_RESTORE = 9;

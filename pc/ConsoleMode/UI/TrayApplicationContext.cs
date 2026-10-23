@@ -16,6 +16,8 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _consoleItem;
     private readonly EventWaitHandle _showEvent;
     private readonly RegisteredWaitHandle _showWait;
+    private readonly EventWaitHandle _exitEvent;
+    private readonly RegisteredWaitHandle _exitWait;
     private MainForm? _form;
 
     public TrayApplicationContext(bool showWindow)
@@ -83,6 +85,8 @@ public sealed class TrayApplicationContext : ApplicationContext
         // Si alguien vuelve a ejecutar el .exe, la segunda instancia nos pide mostrar la ventana.
         _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, Program.ShowEventName);
         _showWait = ThreadPool.RegisterWaitForSingleObject(_showEvent, (_, _) => RunOnUi(ShowMainWindow), null, -1, false);
+        _exitEvent = new EventWaitHandle(false, EventResetMode.AutoReset, Program.ExitEventName);
+        _exitWait = ThreadPool.RegisterWaitForSingleObject(_exitEvent, (_, _) => RunOnUi(Exit), null, -1, true);
 
         if (showWindow)
         {
@@ -138,6 +142,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     public void Exit()
     {
         _showWait.Unregister(null);
+        _exitWait.Unregister(null);
         _tray.Visible = false;
         Server.Dispose();
         Discovery.Dispose();
@@ -226,6 +231,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         {
             _tray.Dispose();
             _showEvent.Dispose();
+            _exitEvent.Dispose();
             _ui.Dispose();
         }
         base.Dispose(disposing);

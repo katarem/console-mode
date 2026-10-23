@@ -30,10 +30,25 @@ jobs:
           -p:EnableCompressionInSingleFile=true
           -o publish
 
+      - name: Crear instalador y versión portable
+        shell: pwsh
+        run: |
+          $version = ([xml](Get-Content pc/ConsoleMode/ConsoleMode.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DAppVersion=$version" "/DSourceExe=..\publish\ConsoleMode.exe" installer\ConsoleMode.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item "installer\Output\ConsoleMode-Setup-$version.exe" dist\
+          Copy-Item publish\ConsoleMode.exe "dist\ConsoleMode-$version-portable.exe"
+          Get-ChildItem dist
+
       - uses: actions/upload-artifact@v4
         with:
           name: ConsoleMode-windows
-          path: publish/ConsoleMode.exe
+          path: dist/*
 
   android:
     name: App móvil (Android)
@@ -61,12 +76,14 @@ jobs:
       - run: flutter build apk --release
 
       - name: Renombrar APK
-        run: mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/ConsoleMode.apk
+        run: |
+          version=$(sed -nE 's/^version: *([^+]+).*/\1/p' pubspec.yaml)
+          mv build/app/outputs/flutter-apk/app-release.apk "build/app/outputs/flutter-apk/ConsoleMode-$version.apk"
 
       - uses: actions/upload-artifact@v4
         with:
           name: ConsoleMode-android
-          path: mobile/build/app/outputs/flutter-apk/ConsoleMode.apk
+          path: mobile/build/app/outputs/flutter-apk/ConsoleMode-*.apk
 
   release:
     name: Publicar release
@@ -81,7 +98,5 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/ConsoleMode.exe
-            dist/ConsoleMode.apk
+          files: dist/*
           generate_release_notes: true

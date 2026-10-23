@@ -34,6 +34,7 @@ Tiene dos partes:
   es opcional.
 - **Iniciar con Windows** (opcional), directamente en segundo plano.
 - Si el PC cambia de IP, el móvil lo vuelve a encontrar solo.
+- **Instalador** o **versión portable**, a tu elección.
 
 ## ¿Se puede forzar Big Picture en la pantalla de la TV?
 
@@ -47,24 +48,45 @@ Sí. Se hace en dos pasos:
 
 ## Instalación
 
-Descarga `ConsoleMode.exe` y `ConsoleMode.apk` desde
-[Releases](https://github.com/katarem/console-mode/releases). También están en los artefactos de cada ejecución de
-[Actions](https://github.com/katarem/console-mode/actions).
+Descarga los archivos desde [Releases](https://github.com/katarem/console-mode/releases):
 
-### PC (Windows 10 / 11)
+| Archivo | Para qué |
+|---|---|
+| `ConsoleMode-Setup-X.Y.Z.exe` | **Instalador** para Windows (recomendado). |
+| `ConsoleMode-X.Y.Z-portable.exe` | **Versión portable** para Windows: un solo `.exe`, sin instalación. |
+| `ConsoleMode-X.Y.Z.apk` | App para Android. |
 
-1. Copia `ConsoleMode.exe` a una carpeta fija, por ejemplo `C:\Programas\ConsoleMode\`. No necesita instalación ni
-   tener .NET instalado.
-2. Ábrelo. Como el exe no está firmado, Windows SmartScreen puede avisar: pulsa «Más información» → «Ejecutar de
-   todas formas».
-3. Cuando el **Firewall de Windows** pregunte, permite el acceso en **redes privadas**. Si no aparece el aviso, o
-   lo cerraste, ejecuta esto en una consola como administrador:
+Las dos versiones de Windows usan la misma configuración (`%APPDATA%\ConsoleMode`), así que puedes pasar de una a otra
+sin volver a configurar nada. No necesitan tener .NET instalado.
+
+Como los ejecutables no están firmados, Windows SmartScreen puede avisar: pulsa «Más información» → «Ejecutar de
+todas formas».
+
+### PC con instalador (Windows 10 / 11)
+
+Ejecuta `ConsoleMode-Setup-X.Y.Z.exe`. El instalador:
+
+- instala Console Mode en `Archivos de programa` y crea un acceso directo en el menú Inicio (y en el escritorio, si
+  lo eliges);
+- crea la regla del **firewall de Windows** para redes privadas, así que no hace falta configurar nada más;
+- puede dejar activado **Iniciar con Windows**. Luego lo puedes cambiar desde *Ajustes* en la app;
+- en una actualización, cierra la versión en marcha, la sustituye y conserva la configuración.
+
+Para desinstalarlo, ve a *Configuración → Aplicaciones*. Al desinstalar se borran la regla del firewall y el inicio
+automático, pero se conserva la configuración.
+
+### PC portable
+
+1. Copia `ConsoleMode-X.Y.Z-portable.exe` a una carpeta fija, por ejemplo `C:\Programas\ConsoleMode\`, y ábrelo.
+2. Cuando el **firewall de Windows** pregunte, permite el acceso en **redes privadas**. Si no aparece el aviso, o lo
+   cerraste, ejecuta esto en una consola como administrador:
 
    ```powershell
-   netsh advfirewall firewall add rule name="Console Mode" dir=in action=allow program="C:\Programas\ConsoleMode\ConsoleMode.exe" enable=yes profile=private
+   netsh advfirewall firewall add rule name="Console Mode" dir=in action=allow program="C:\Programas\ConsoleMode\ConsoleMode-X.Y.Z-portable.exe" enable=yes profile=private
    ```
 
-   Comprueba también que tu Wi-Fi o Ethernet esté como **red privada** y no como red pública.
+Con cualquiera de las dos versiones, comprueba que tu Wi-Fi o Ethernet esté como **red privada** y no como red
+pública.
 
 ### Móvil
 
@@ -106,7 +128,7 @@ carpeta.
 | Pantalla principal | `QueryDisplayConfig` para identificar cada monitor de forma estable (nombre EDID y ruta del dispositivo) y `ChangeDisplaySettingsEx` con `CDS_SET_PRIMARY`, recolocando todos los monitores para que el nuevo principal quede en (0,0). |
 | Audio predeterminado | Interfaz COM `IPolicyConfig` (la misma que usa el panel de Sonido de Windows), para los roles consola, multimedia y comunicaciones. El audio se cambia después de la pantalla y se reintenta unos segundos, porque la salida HDMI de una TV puede tardar en aparecer. |
 | Abrir Big Picture | `steam://open/bigpicture` |
-| Colocar Big Picture | Se busca la ventana de Steam cuyo título contiene «Big Picture» y se mueve con `SetWindowPos` al rectángulo de la pantalla elegida. |
+| Colocar Big Picture | Se busca la ventana de `steamwebhelper` cuyo título contiene «Big Picture» (Steam puede separar las palabras con un espacio de no separación, U+00A0) y se mueve con `SetWindowPos` al rectángulo de la pantalla elegida. |
 | Cerrar Big Picture | `steam://close/bigpicture`. Si no responde, se envía `WM_CLOSE` a la ventana. |
 | Red | TCP (JSON por líneas) en el puerto 47820 y descubrimiento UDP en el 47821. Ver [docs/PROTOCOL.md](docs/PROTOCOL.md). |
 
@@ -132,8 +154,14 @@ flutter test
 flutter build apk --release
 ```
 
-Al subir una etiqueta `vX.Y.Z`, GitHub Actions compila las dos apps y crea una release con `ConsoleMode.exe` y
-`ConsoleMode.apk`.
+Para generar el instalador hace falta [Inno Setup 6](https://jrsoftware.org/isinfo.php) (solo en Windows):
+
+```powershell
+iscc /DAppVersion=1.1.0 /DSourceExe=..\publish\ConsoleMode.exe installer\ConsoleMode.iss
+```
+
+Al subir una etiqueta `vX.Y.Z`, GitHub Actions compila todo y crea una release con el instalador, la versión
+portable y el APK.
 
 ## Estructura
 
@@ -147,6 +175,7 @@ mobile/lib/
   services/   Protocolo, emparejamiento, conexión y descubrimiento
   screens/    Inicio, escáner QR, búsqueda, emparejamiento y control
   widgets/    Interruptor PC / Consola
+installer/    Script del instalador (Inno Setup)
 docs/         Protocolo
 ```
 

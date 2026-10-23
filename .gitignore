@@ -13,3 +13,7 @@ publish/
 Thumbs.db
 .idea/
 .vscode/
+
+# Instalador
+installer/Output/
+dist/

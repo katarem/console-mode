@@ -49,7 +49,7 @@ public sealed class MainForm : Form
     {
         _app = app;
 
-        Text = "Console Mode";
+        Text = $"Console Mode {Application.ProductVersion.Split('+')[0]}";
         Icon = app.AppIcon;
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Segoe UI", 9.5f);
