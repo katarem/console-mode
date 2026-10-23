@@ -176,7 +176,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        _overlay = new OverlayForm(AppIcon);
+        _overlay = new OverlayForm(AppIcon, Switcher);
         _overlay.FormClosed += (_, _) =>
         {
             _overlay = null;

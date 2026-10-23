@@ -29,6 +29,7 @@ public sealed class OverlayForm : Form
 
     private enum ItemKind
     {
+        SwitchToPc,
         Audio,
         Display,
     }
@@ -42,6 +43,7 @@ public sealed class OverlayForm : Form
     private readonly System.Windows.Forms.Timer _focusTimer = new() { Interval = 50 };
     private readonly System.Diagnostics.Stopwatch _focusClock = new();
     private readonly IntPtr _previousForeground;
+    private readonly ModeSwitcher _switcher;
     private readonly List<Item> _items = new();
     private readonly List<Line> _lines = new();
     private Fonts? _fonts;
@@ -52,9 +54,10 @@ public sealed class OverlayForm : Form
     private bool _busy;
     private string? _targetDisplayGdiName;
 
-    public OverlayForm(Icon icon)
+    public OverlayForm(Icon icon, ModeSwitcher switcher)
     {
         _previousForeground = WindowFocus.Foreground;
+        _switcher = switcher;
 
         Text = "Console Mode";
         Icon = icon;
@@ -220,6 +223,11 @@ public sealed class OverlayForm : Form
         var selectedKey = _selected < _items.Count ? (_items[_selected].Kind, _items[_selected].Id) : default;
 
         _items.Clear();
+        var state = _switcher.State;
+        if (state.Mode == AppMode.Console && !state.Busy)
+        {
+            _items.Add(new Item(ItemKind.SwitchToPc, "pc", "Volver a modo PC", false));
+        }
         try
         {
             _items.AddRange(AudioManager.GetOutputDevices().Select(a => new Item(ItemKind.Audio, a.Id, a.Name, a.IsDefault)));
@@ -240,7 +248,12 @@ public sealed class OverlayForm : Form
         var index = _items.FindIndex(i => (i.Kind, i.Id) == selectedKey);
         if (index < 0)
         {
-            index = Math.Max(0, _items.FindIndex(i => i.Kind == ItemKind.Audio && i.IsCurrent));
+            // Se empieza en el audio actual (nunca en «Volver a modo PC», para que un A sin querer no cambie de modo).
+            index = _items.FindIndex(i => i.Kind == ItemKind.Audio && i.IsCurrent);
+            if (index < 0)
+            {
+                index = Math.Max(0, _items.FindIndex(i => i.Kind != ItemKind.SwitchToPc));
+            }
         }
         _selected = Math.Clamp(index, 0, Math.Max(0, _items.Count - 1));
     }
@@ -276,6 +289,15 @@ public sealed class OverlayForm : Form
         }
 
         var item = _items[_selected];
+        if (item.Kind == ItemKind.SwitchToPc)
+        {
+            // Se cierra primero para devolver el foco; el cambio de modo cierra Big Picture y restaura el modo PC.
+            Log.Info("Overlay: volver a modo PC");
+            Close();
+            _ = _switcher.SwitchAsync(AppMode.Pc);
+            return;
+        }
+
         _busy = true;
         SetStatus("Aplicando…");
         try
@@ -364,8 +386,18 @@ public sealed class OverlayForm : Form
         Add("Console Mode", f.Title, TextColor, LineHeight(f.Title));
         Add(Subtitle, f.Small, MutedColor, LineHeight(f.Small), Px(2));
 
-        foreach (var (kind, title) in new[] { (ItemKind.Audio, "🔊  Audio"), (ItemKind.Display, "🖥  Pantalla principal") })
+        var sections = new[]
         {
+            (ItemKind.SwitchToPc, "🎮  Modo consola activo"),
+            (ItemKind.Audio, "🔊  Audio"),
+            (ItemKind.Display, "🖥  Pantalla principal"),
+        };
+        foreach (var (kind, title) in sections)
+        {
+            if (!_items.Any(i => i.Kind == kind))
+            {
+                continue;
+            }
             Add(title, f.Section, MutedColor, LineHeight(f.Section), Px(18));
             y += Px(4);
             for (var i = 0; i < _items.Count; i++)
@@ -422,7 +454,8 @@ public sealed class OverlayForm : Form
             var fore = selected ? Color.White : TextColor;
             var bulletRect = new Rectangle(line.Bounds.X + rowPadX, line.Bounds.Y, bulletWidth, line.Bounds.Height);
             var textRect = Rectangle.FromLTRB(bulletRect.Right, line.Bounds.Y, line.Bounds.Right - rowPadX, line.Bounds.Bottom);
-            TextRenderer.DrawText(g, item.IsCurrent ? "●" : "○", line.Font, bulletRect, fore, TextFlags);
+            var bullet = item.Kind == ItemKind.SwitchToPc ? "↩" : item.IsCurrent ? "●" : "○";
+            TextRenderer.DrawText(g, bullet, line.Font, bulletRect, fore, TextFlags);
             TextRenderer.DrawText(g, item.Name, line.Font, textRect, fore, TextFlags | TextFormatFlags.EndEllipsis);
         }
     }

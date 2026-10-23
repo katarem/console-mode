@@ -114,6 +114,8 @@ pública.
 Con un mando **Xbox o compatible XInput** (incluidos los 8BitDo en modo X), mantén **View + Menú** (los dos botones
 pequeños del centro) durante **1 segundo**. Aparece un panel en la esquina inferior derecha con:
 
+- **Volver a modo PC** (solo en modo consola): cierra Big Picture y vuelve a tu pantalla y tu audio del modo PC, sin
+  soltar el mando.
 - **Audio**: todas las salidas de audio. El punto ● marca la actual.
 - **Pantalla principal**: todas las pantallas. Si Big Picture está abierto, se mueve a la pantalla elegida.
 
