@@ -9,18 +9,23 @@ namespace ConsoleMode.UI;
 /// al momento. Estos cambios son temporales: no se guardan en los perfiles de los modos.
 /// </summary>
 /// <remarks>
-/// Todo se dibuja con el escalado (DPI) de la pantalla donde aparece, con fuentes en píxeles calculadas a mano.
-/// Así no depende del escalado de la pantalla principal ni del reescalado automático de WinForms, que hacía que
-/// en una TV 4K al 200 % el overlay saliera pequeño y cortado hasta que se reconstruía.
+/// Se dibuja entero a mano (sin controles hijos) con el escalado (DPI) de la pantalla donde aparece.
+/// Con controles normales, WinForms los reescalaba por su cuenta al llegar a una TV 4K al 200 % y el texto
+/// salía pequeño, o al doble y cortado, hasta que se reconstruían.
 /// </remarks>
 public sealed class OverlayForm : Form
 {
     private static readonly Color Background = Color.FromArgb(28, 28, 36);
+    private static readonly Color Border = Color.FromArgb(60, 60, 76);
     private static readonly Color Accent = Color.FromArgb(76, 70, 229);
     private static readonly Color TextColor = Color.FromArgb(235, 235, 245);
     private static readonly Color MutedColor = Color.FromArgb(150, 150, 170);
     private static readonly Color ErrorColor = Color.FromArgb(255, 120, 120);
     private static readonly TimeSpan IdleClose = TimeSpan.FromSeconds(20);
+
+    private const TextFormatFlags TextFlags =
+        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
+        TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
 
     private enum ItemKind
     {
@@ -30,15 +35,17 @@ public sealed class OverlayForm : Form
 
     private sealed record Item(ItemKind Kind, string Id, string Name, bool IsCurrent);
 
+    /// <summary>Una línea del overlay ya colocada: cabecera de sección o fila seleccionable.</summary>
+    private sealed record Line(Rectangle Bounds, string Text, Font Font, Color Color, int RowIndex = -1);
+
     private readonly System.Windows.Forms.Timer _idleTimer;
     private readonly System.Windows.Forms.Timer _focusTimer = new() { Interval = 50 };
     private readonly System.Diagnostics.Stopwatch _focusClock = new();
-    private readonly List<(Item Item, Label Row)> _rows = new();
-    private readonly List<Font> _fonts = new();
     private readonly IntPtr _previousForeground;
-    private TableLayoutPanel _list = new();
-    private Label _status = new();
-    private string _statusText = "";
+    private readonly List<Item> _items = new();
+    private readonly List<Line> _lines = new();
+    private Fonts? _fonts;
+    private string _status = "";
     private bool _statusIsError;
     private int _dpi;
     private int _selected;
@@ -57,20 +64,17 @@ public sealed class OverlayForm : Form
         StartPosition = FormStartPosition.Manual;
         AutoScaleMode = AutoScaleMode.None;
         BackColor = Background;
-        ForeColor = TextColor;
-        AutoSize = true;
-        AutoSizeMode = AutoSizeMode.GrowAndShrink;
         KeyPreview = true;
-
-        // Se construye con el escalado de la pantalla de destino y se coloca ya en su esquina antes de mostrarse,
-        // para que la ventana nazca ahí y Windows no le cambie el DPI.
-        _dpi = DpiOf(TargetArea());
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
         _idleTimer = new System.Windows.Forms.Timer { Interval = (int)IdleClose.TotalMilliseconds };
         _idleTimer.Tick += (_, _) => Close();
         _focusTimer.Tick += (_, _) => EnsureFocus();
 
-        BuildUi();
+        // Se calcula con el escalado de la pantalla de destino y se coloca ya en su esquina antes de mostrarse.
+        _dpi = DpiOf(TargetArea());
+        LoadItems();
+        Relayout();
         PlaceInCorner();
     }
 
@@ -102,30 +106,40 @@ public sealed class OverlayForm : Form
         }
     }
 
+    // ------------------------------------------------------------------
+    // Ciclo de vida de la ventana
+    // ------------------------------------------------------------------
+
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        // Por si Windows ha puesto la ventana en otra pantalla que la calculada.
+        // Por si Windows ha creado la ventana en otra pantalla que la calculada.
         if (DeviceDpi != _dpi)
         {
             _dpi = DeviceDpi;
-            BuildUi();
+            Relayout();
         }
         PlaceInCorner();
         GrabFocus();
         _idleTimer.Start();
     }
 
-    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    protected override void WndProc(ref Message m)
     {
-        // Al pasar a una pantalla con otro escalado lo reconstruimos nosotros, sin el reescalado de WinForms.
-        e.Cancel = true;
-        if (e.DeviceDpiNew != _dpi)
+        if (m.Msg == WM_DPICHANGED)
         {
-            _dpi = e.DeviceDpiNew;
-            BuildUi();
-            PlaceInCorner();
+            // Nada de reescalado automático: se vuelve a calcular todo con el nuevo DPI.
+            var newDpi = (int)((long)m.WParam & 0xFFFF);
+            if (newDpi > 0 && newDpi != _dpi)
+            {
+                _dpi = newDpi;
+                Relayout();
+                PlaceInCorner();
+            }
+            m.Result = IntPtr.Zero;
+            return;
         }
+        base.WndProc(ref m);
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -152,6 +166,17 @@ public sealed class OverlayForm : Form
             e.Handled = true;
         }
         base.OnKeyDown(e);
+    }
+
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        base.OnMouseClick(e);
+        var line = _lines.FirstOrDefault(l => l.RowIndex >= 0 && l.Bounds.Contains(e.Location));
+        if (line != null)
+        {
+            Select(line.RowIndex);
+            HandleAction(PadAction.Accept);
+        }
     }
 
     protected override void OnDeactivate(EventArgs e)
@@ -181,54 +206,23 @@ public sealed class OverlayForm : Form
         base.Dispose(disposing);
         if (disposing)
         {
-            _fonts.ForEach(f => f.Dispose());
-            _fonts.Clear();
+            _fonts?.Dispose();
+            _fonts = null;
         }
     }
 
     // ------------------------------------------------------------------
-    // Construcción de la interfaz con el escalado actual (_dpi)
+    // Datos
     // ------------------------------------------------------------------
 
-    private void BuildUi()
+    private void LoadItems()
     {
-        SuspendLayout();
-        var oldControls = Controls.Cast<Control>().ToList();
-        Controls.Clear();
-        oldControls.ForEach(c => c.Dispose());
-        var oldFonts = _fonts.ToList();
-        _fonts.Clear();
+        var selectedKey = _selected < _items.Count ? (_items[_selected].Kind, _items[_selected].Id) : default;
 
-        Padding = Pad(22, 18, 22, 18);
-        Font = MakeFont(15f);
-
-        var layout = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Dock = DockStyle.Fill, Margin = Padding.Empty };
-        layout.Controls.Add(MakeLabel("Console Mode", MakeFont(17f, FontStyle.Bold), TextColor, Pad(0, 0, 0, 0)));
-        layout.Controls.Add(MakeLabel("Cambios temporales: no se guardan en tus modos", MakeFont(11f), MutedColor, Pad(0, 2, 0, 12)));
-
-        _list = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Margin = Padding.Empty };
-        layout.Controls.Add(_list);
-
-        _status = MakeLabel("", MakeFont(11f), MutedColor, Pad(0, 12, 0, 0));
-        layout.Controls.Add(_status);
-        layout.Controls.Add(MakeLabel("Ⓐ Elegir     Ⓑ Cerrar     ↑↓ Moverse", MakeFont(11f), MutedColor, Pad(0, 6, 0, 0)));
-        Controls.Add(layout);
-
-        Reload();
-        SetStatus(_statusText, _statusIsError);
-        ResumeLayout(true);
-
-        oldFonts.ForEach(f => f.Dispose());
-    }
-
-    private void Reload()
-    {
-        var selectedKey = _rows.Count > 0 && _selected < _rows.Count ? (_rows[_selected].Item.Kind, _rows[_selected].Item.Id) : default;
-
-        var items = new List<Item>();
+        _items.Clear();
         try
         {
-            items.AddRange(AudioManager.GetOutputDevices().Select(a => new Item(ItemKind.Audio, a.Id, a.Name, a.IsDefault)));
+            _items.AddRange(AudioManager.GetOutputDevices().Select(a => new Item(ItemKind.Audio, a.Id, a.Name, a.IsDefault)));
         }
         catch (Exception ex)
         {
@@ -236,94 +230,52 @@ public sealed class OverlayForm : Form
         }
         try
         {
-            items.AddRange(DisplayManager.GetDisplays().Select(d => new Item(ItemKind.Display, d.Id, d.FriendlyName, d.IsPrimary)));
+            _items.AddRange(DisplayManager.GetDisplays().Select(d => new Item(ItemKind.Display, d.Id, d.FriendlyName, d.IsPrimary)));
         }
         catch (Exception ex)
         {
             Log.Error("Overlay: no se pudieron leer las pantallas", ex);
         }
 
-        _list.SuspendLayout();
-        var oldRows = _list.Controls.Cast<Control>().ToList();
-        _list.Controls.Clear();
-        oldRows.ForEach(c => c.Dispose());
-        _rows.Clear();
-        AddSection("🔊  Audio", items.Where(i => i.Kind == ItemKind.Audio));
-        AddSection("🖥  Pantalla principal", items.Where(i => i.Kind == ItemKind.Display));
-        _list.ResumeLayout(true);
-
-        var index = _rows.FindIndex(r => (r.Item.Kind, r.Item.Id) == selectedKey);
+        var index = _items.FindIndex(i => (i.Kind, i.Id) == selectedKey);
         if (index < 0)
         {
-            index = Math.Max(0, _rows.FindIndex(r => r.Item.Kind == ItemKind.Audio && r.Item.IsCurrent));
+            index = Math.Max(0, _items.FindIndex(i => i.Kind == ItemKind.Audio && i.IsCurrent));
         }
-        Select(index);
-    }
-
-    private void AddSection(string title, IEnumerable<Item> items)
-    {
-        var first = _list.Controls.Count == 0;
-        _list.Controls.Add(MakeLabel(title, MakeFont(12f, FontStyle.Bold), MutedColor, Pad(0, first ? 0 : 14, 0, 4)));
-
-        var rowFont = MakeFont(15f);
-        foreach (var item in items)
-        {
-            var row = new Label
-            {
-                Text = $"{(item.IsCurrent ? "●" : "○")}  {item.Name}",
-                Font = rowFont,
-                AutoSize = false,
-                Size = new Size(Px(480), Px(46)),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = Pad(12, 0, 12, 0),
-                Margin = Pad(0, 1, 0, 1),
-                AutoEllipsis = true,
-                UseMnemonic = false,
-                Cursor = Cursors.Hand,
-            };
-            var index = _rows.Count;
-            row.Click += (_, _) =>
-            {
-                Select(index);
-                HandleAction(PadAction.Accept);
-            };
-            _rows.Add((item, row));
-            _list.Controls.Add(row);
-        }
+        _selected = Math.Clamp(index, 0, Math.Max(0, _items.Count - 1));
     }
 
     private void Select(int index)
     {
-        if (_rows.Count == 0)
+        if (_items.Count == 0)
         {
             return;
         }
-        _selected = Math.Clamp(index, 0, _rows.Count - 1);
-        for (var i = 0; i < _rows.Count; i++)
-        {
-            var selected = i == _selected;
-            _rows[i].Row.BackColor = selected ? Accent : Background;
-            _rows[i].Row.ForeColor = selected ? Color.White : TextColor;
-        }
+        _selected = Math.Clamp(index, 0, _items.Count - 1);
+        Invalidate();
     }
 
     private void SetStatus(string text, bool error = false)
     {
-        _statusText = text;
+        var sizeChanged = (_status.Length == 0) != (text.Length == 0);
+        _status = text;
         _statusIsError = error;
-        _status.Text = text;
-        _status.ForeColor = error ? ErrorColor : MutedColor;
-        _status.Visible = text.Length > 0;
+        if (sizeChanged)
+        {
+            Relayout();
+            PlaceInCorner();
+        }
+        Invalidate();
     }
 
     private async Task ApplySelectedAsync()
     {
-        if (_rows.Count == 0)
+        if (_items.Count == 0)
         {
             return;
         }
 
-        var item = _rows[_selected].Item;
+        var item = _items[_selected];
         _busy = true;
         SetStatus("Aplicando…");
         try
@@ -343,7 +295,7 @@ public sealed class OverlayForm : Form
                     _ = Task.Run(() => SteamBigPicture.EnsureOnDisplayAsync(item.Id, TimeSpan.FromSeconds(5)));
                 }
             }
-            Log.Info($"Overlay: {_statusText} (temporal)");
+            Log.Info($"Overlay: {_status} (temporal)");
         }
         catch (Exception ex)
         {
@@ -359,10 +311,154 @@ public sealed class OverlayForm : Form
         {
             return;
         }
-        Reload();
+
+        // Si la pantalla elegida tiene otro escalado, se recalcula con el suyo.
+        var dpi = DpiOf(TargetArea());
+        if (dpi != _dpi)
+        {
+            _dpi = dpi;
+        }
+        LoadItems();
+        Relayout();
         PlaceInCorner();
         GrabFocus();
     }
+
+    // ------------------------------------------------------------------
+    // Disposición y dibujo
+    // ------------------------------------------------------------------
+
+    /// <summary>Calcula la posición de cada línea y el tamaño de la ventana con el DPI actual.</summary>
+    private void Relayout()
+    {
+        _fonts?.Dispose();
+        _fonts = new Fonts(_dpi);
+        var f = _fonts;
+        _lines.Clear();
+
+        var padX = Px(24);
+        var rowPadX = Px(14);
+        var rowHeight = Px(48);
+        var bulletWidth = TextRenderer.MeasureText("●  ", f.Row, Size.Empty, TextFlags).Width;
+
+        // Ancho: el del texto más largo, entre 420 y 680 px lógicos.
+        var widest = new[]
+            {
+                TextRenderer.MeasureText("Console Mode", f.Title, Size.Empty, TextFlags).Width,
+                TextRenderer.MeasureText(Subtitle, f.Small, Size.Empty, TextFlags).Width,
+                TextRenderer.MeasureText(Hint, f.Small, Size.Empty, TextFlags).Width,
+            }
+            .Concat(_items.Select(i => bulletWidth + TextRenderer.MeasureText(i.Name, f.Row, Size.Empty, TextFlags).Width + rowPadX * 2))
+            .Max();
+        var contentWidth = Math.Clamp(widest, Px(420), Px(680));
+
+        var y = Px(20);
+        void Add(string text, Font font, Color color, int height, int marginTop = 0, int rowIndex = -1)
+        {
+            y += marginTop;
+            _lines.Add(new Line(new Rectangle(padX, y, contentWidth, height), text, font, color, rowIndex));
+            y += height;
+        }
+        int LineHeight(Font font) => TextRenderer.MeasureText("Ág", font, Size.Empty, TextFlags).Height;
+
+        Add("Console Mode", f.Title, TextColor, LineHeight(f.Title));
+        Add(Subtitle, f.Small, MutedColor, LineHeight(f.Small), Px(2));
+
+        foreach (var (kind, title) in new[] { (ItemKind.Audio, "🔊  Audio"), (ItemKind.Display, "🖥  Pantalla principal") })
+        {
+            Add(title, f.Section, MutedColor, LineHeight(f.Section), Px(18));
+            y += Px(4);
+            for (var i = 0; i < _items.Count; i++)
+            {
+                if (_items[i].Kind == kind)
+                {
+                    Add(_items[i].Name, f.Row, TextColor, rowHeight, Px(2), i);
+                }
+            }
+        }
+
+        if (_status.Length > 0)
+        {
+            Add(_status, f.Small, MutedColor, LineHeight(f.Small), Px(14));
+        }
+        Add(Hint, f.Small, MutedColor, LineHeight(f.Small), Px(_status.Length > 0 ? 6 : 14));
+
+        ClientSize = new Size(contentWidth + padX * 2, y + Px(20));
+        Invalidate();
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.Clear(Background);
+        using (var border = new Pen(Border, Math.Max(1, Px(1))))
+        {
+            g.DrawRectangle(border, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
+        }
+        if (_fonts == null)
+        {
+            return;
+        }
+
+        var bulletWidth = TextRenderer.MeasureText("●  ", _fonts.Row, Size.Empty, TextFlags).Width;
+        var rowPadX = Px(14);
+
+        foreach (var line in _lines)
+        {
+            if (line.RowIndex < 0)
+            {
+                var color = line.Text == _status && _statusIsError ? ErrorColor : line.Color;
+                TextRenderer.DrawText(g, line.Text, line.Font, line.Bounds, color, TextFlags | TextFormatFlags.EndEllipsis);
+                continue;
+            }
+
+            var item = _items[line.RowIndex];
+            var selected = line.RowIndex == _selected;
+            if (selected)
+            {
+                using var brush = new SolidBrush(Accent);
+                g.FillRectangle(brush, line.Bounds);
+            }
+            var fore = selected ? Color.White : TextColor;
+            var bulletRect = new Rectangle(line.Bounds.X + rowPadX, line.Bounds.Y, bulletWidth, line.Bounds.Height);
+            var textRect = Rectangle.FromLTRB(bulletRect.Right, line.Bounds.Y, line.Bounds.Right - rowPadX, line.Bounds.Bottom);
+            TextRenderer.DrawText(g, item.IsCurrent ? "●" : "○", line.Font, bulletRect, fore, TextFlags);
+            TextRenderer.DrawText(g, item.Name, line.Font, textRect, fore, TextFlags | TextFormatFlags.EndEllipsis);
+        }
+    }
+
+    private const string Subtitle = "Cambios temporales: no se guardan en tus modos";
+    private const string Hint = "Ⓐ Elegir     Ⓑ Cerrar     ↑↓ Moverse";
+
+    /// <summary>Fuentes en píxeles (1 pt = 1/72") para el DPI dado: WinForms no las reescala.</summary>
+    private sealed class Fonts : IDisposable
+    {
+        public Fonts(int dpi)
+        {
+            Font Make(string family, float points) => new(family, points * dpi / 72f, FontStyle.Regular, GraphicsUnit.Pixel);
+            Title = Make("Segoe UI Semibold", 17f);
+            Section = Make("Segoe UI Semibold", 12f);
+            Row = Make("Segoe UI", 15f);
+            Small = Make("Segoe UI", 11f);
+        }
+
+        public Font Title { get; }
+        public Font Section { get; }
+        public Font Row { get; }
+        public Font Small { get; }
+
+        public void Dispose()
+        {
+            Title.Dispose();
+            Section.Dispose();
+            Row.Dispose();
+            Small.Dispose();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Foco
+    // ------------------------------------------------------------------
 
     /// <summary>
     /// Toma el foco y, si Windows no lo concede a la primera, reintenta cada 50 ms durante 3 s. Mientras Big Picture
@@ -433,7 +529,7 @@ public sealed class OverlayForm : Form
         }
         catch
         {
-            // shcore.dll no disponible: se usa el escalado del sistema.
+            // shcore.dll no disponible: escalado del 100 %.
         }
         return 96;
     }
@@ -441,27 +537,7 @@ public sealed class OverlayForm : Form
     /// <summary>Píxeles lógicos (96 DPI) a píxeles reales de la pantalla del overlay.</summary>
     private int Px(int value) => (int)Math.Round(value * _dpi / 96f);
 
-    private Padding Pad(int left, int top, int right, int bottom) => new(Px(left), Px(top), Px(right), Px(bottom));
-
-    /// <summary>Fuente en píxeles (1 pt = 1/72") para que WinForms no la reescale con el DPI del sistema.</summary>
-    private Font MakeFont(float points, FontStyle style = FontStyle.Regular)
-    {
-        var family = style.HasFlag(FontStyle.Bold) ? "Segoe UI Semibold" : "Segoe UI";
-        var font = new Font(family, points * _dpi / 72f, style & ~FontStyle.Bold, GraphicsUnit.Pixel);
-        _fonts.Add(font);
-        return font;
-    }
-
-    private static Label MakeLabel(string text, Font font, Color color, Padding margin) => new()
-    {
-        Text = text,
-        Font = font,
-        ForeColor = color,
-        AutoSize = true,
-        Margin = margin,
-        UseMnemonic = false,
-    };
-
+    private const int WM_DPICHANGED = 0x02E0;
     private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     private const int DWMWCP_ROUND = 2;
     private const uint MONITOR_DEFAULTTONEAREST = 2;
