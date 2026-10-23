@@ -86,6 +86,9 @@ public sealed class AppSettings
     public bool MoveBigPictureToConsoleDisplay { get; set; } = true;
     public bool CloseBigPictureOnPcMode { get; set; } = true;
 
+    /// <summary>Mantener View + Menú en un mando Xbox abre el overlay de audio y pantalla.</summary>
+    public bool GamepadOverlayEnabled { get; set; } = true;
+
     public List<TrustedDevice> TrustedDevices { get; set; } = new();
 
     public ModeProfile ProfileFor(AppMode mode) => mode == AppMode.Console ? ConsoleProfile : PcProfile;

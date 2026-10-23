@@ -33,6 +33,8 @@ Tiene dos partes:
 - **Segundo plano**: al cerrar la ventana la app sigue funcionando. El icono de la bandeja (en «iconos ocultos»)
   es opcional.
 - **Iniciar con Windows** (opcional), directamente en segundo plano.
+- **Overlay con el mando**: mantén **View + Menú** durante 1 segundo en un mando Xbox para cambiar la salida de audio
+  o la pantalla principal desde el sofá (ver más abajo).
 - Si el PC cambia de IP, el móvil lo vuelve a encontrar solo.
 - **Instalador** o **versión portable**, a tu elección.
 
@@ -107,6 +109,28 @@ pública.
 3. **Cambia de modo** con el interruptor del móvil, con los botones de la ventana del PC o con el menú del icono de
    la bandeja.
 
+### Overlay con el mando
+
+Con un mando **Xbox o compatible XInput** (incluidos los 8BitDo en modo X), mantén **View + Menú** (los dos botones
+pequeños del centro) durante **1 segundo**. Aparece un panel en la esquina inferior derecha con:
+
+- **Audio**: todas las salidas de audio. El punto ● marca la actual.
+- **Pantalla principal**: todas las pantallas. Si Big Picture está abierto, se mueve a la pantalla elegida.
+
+Usa la **cruceta o el stick** para moverte, **A** para elegir y **B** (o View + Menú otra vez) para cerrar. El panel
+también se cierra solo tras 20 segundos sin usarlo.
+
+Lo que elijas aquí es **temporal**: no cambia la configuración de tus modos. La próxima vez que cambies de modo se
+aplicará lo que tengas configurado en la pestaña *Modos*.
+
+Notas:
+
+- Mientras el panel está abierto se queda con el foco, para que A y B no lleguen también a Big Picture o al juego. Al
+  cerrarlo, el foco vuelve donde estaba. Al mantener View + Menú, el juego también recibe esas pulsaciones (por
+  ejemplo, puede abrir su menú de pausa).
+- No se ve encima de juegos en **pantalla completa exclusiva**. Con «ventana sin bordes» y en Big Picture sí.
+- Se puede desactivar en *Modos → Modo Consola*. También se abre desde el menú del icono de la bandeja.
+
 ### Segundo plano e inicio con Windows
 
 En la pestaña *Ajustes*:
@@ -130,6 +154,7 @@ carpeta.
 | Abrir Big Picture | `steam://open/bigpicture` |
 | Colocar Big Picture | Se busca la ventana de `steamwebhelper` cuyo título contiene «Big Picture» (Steam puede separar las palabras con un espacio de no separación, U+00A0) y se mueve con `SetWindowPos` al rectángulo de la pantalla elegida. |
 | Cerrar Big Picture | `steam://close/bigpicture`. Si no responde, se envía `WM_CLOSE` a la ventana. |
+| Overlay del mando | Se lee XInput (`xinput1_4.dll`) en segundo plano a ~30 Hz, sin necesitar el foco. Los huecos de mando vacíos solo se consultan cada 2 s. |
 | Red | TCP (JSON por líneas) en el puerto 47820 y descubrimiento UDP en el 47821. Ver [docs/PROTOCOL.md](docs/PROTOCOL.md). |
 
 ### Seguridad

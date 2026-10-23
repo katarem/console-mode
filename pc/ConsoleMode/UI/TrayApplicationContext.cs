@@ -1,5 +1,6 @@
 using System.Reflection;
 using ConsoleMode.Core;
+using ConsoleMode.Native;
 using ConsoleMode.Network;
 
 namespace ConsoleMode.UI;
@@ -19,6 +20,8 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly EventWaitHandle _exitEvent;
     private readonly RegisteredWaitHandle _exitWait;
     private MainForm? _form;
+    private GamepadWatcher? _gamepad;
+    private OverlayForm? _overlay;
 
     public TrayApplicationContext(bool showWindow)
     {
@@ -57,6 +60,8 @@ public sealed class TrayApplicationContext : ApplicationContext
             Log.Error($"No se pudo abrir el puerto de descubrimiento {AppSettings.DiscoveryPort}", ex);
         }
 
+        SetGamepadOverlayEnabled(Settings.GamepadOverlayEnabled);
+
         _pcItem = new ToolStripMenuItem("Modo PC", null, (_, _) => _ = Switcher.SwitchAsync(AppMode.Pc));
         _consoleItem = new ToolStripMenuItem("Modo Consola", null, (_, _) => _ = Switcher.SwitchAsync(AppMode.Console));
         var menu = new ContextMenuStrip();
@@ -64,6 +69,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_pcItem);
         menu.Items.Add(_consoleItem);
+        menu.Items.Add(new ToolStripMenuItem("Overlay de audio y pantalla", null, (_, _) => ToggleOverlay()));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Salir", null, (_, _) => Exit()));
 
@@ -139,6 +145,65 @@ public sealed class TrayApplicationContext : ApplicationContext
         Server.DisconnectDevice(deviceId);
     }
 
+    /// <summary>Activa o desactiva la lectura del mando para el overlay (View + Menú).</summary>
+    public void SetGamepadOverlayEnabled(bool enabled)
+    {
+        lock (Settings)
+        {
+            Settings.GamepadOverlayEnabled = enabled;
+            Settings.Save();
+        }
+
+        if (enabled && _gamepad == null)
+        {
+            _gamepad = new GamepadWatcher();
+            _gamepad.Action += action => RunOnUi(() => OnPadAction(action));
+            _gamepad.Start();
+        }
+        else if (!enabled && _gamepad != null)
+        {
+            _gamepad.Dispose();
+            _gamepad = null;
+            _overlay?.Close();
+        }
+    }
+
+    public void ToggleOverlay()
+    {
+        if (_overlay != null && !_overlay.IsDisposed)
+        {
+            _overlay.Close();
+            return;
+        }
+
+        _overlay = new OverlayForm(AppIcon);
+        _overlay.FormClosed += (_, _) =>
+        {
+            _overlay = null;
+            if (_gamepad != null)
+            {
+                _gamepad.OverlayOpen = false;
+            }
+        };
+        if (_gamepad != null)
+        {
+            _gamepad.OverlayOpen = true;
+        }
+        _overlay.Show();
+    }
+
+    private void OnPadAction(PadAction action)
+    {
+        if (action == PadAction.ToggleOverlay)
+        {
+            ToggleOverlay();
+        }
+        else
+        {
+            _overlay?.HandleAction(action);
+        }
+    }
+
     public void Exit()
     {
         _showWait.Unregister(null);
@@ -146,6 +211,8 @@ public sealed class TrayApplicationContext : ApplicationContext
         _tray.Visible = false;
         Server.Dispose();
         Discovery.Dispose();
+        _gamepad?.Dispose();
+        _overlay?.Close();
         _form?.Close();
         _form?.Dispose();
         ExitThread();

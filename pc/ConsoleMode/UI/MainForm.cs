@@ -27,6 +27,11 @@ public sealed class MainForm : Form
     private readonly CheckBox _launchBigPicture = new() { Text = "Abrir Steam Big Picture al activar el modo consola", AutoSize = true };
     private readonly CheckBox _moveBigPicture = new() { Text = "Forzar Big Picture en la pantalla del modo consola", AutoSize = true };
     private readonly CheckBox _closeBigPicture = new() { Text = "Cerrar Big Picture al volver al modo PC", AutoSize = true };
+    private readonly CheckBox _gamepadOverlay = new()
+    {
+        Text = "Overlay con el mando: mantén View + Menú 1 s para cambiar audio y pantalla",
+        AutoSize = true,
+    };
 
     private readonly PictureBox _qr = new() { Size = new Size(220, 220), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.White };
     private readonly Label _addressLabel = new() { AutoSize = true, MaximumSize = new Size(260, 0) };
@@ -132,6 +137,8 @@ public sealed class MainForm : Form
         consoleGrid.SetColumnSpan(_moveBigPicture, 2);
         consoleGrid.Controls.Add(_closeBigPicture);
         consoleGrid.SetColumnSpan(_closeBigPicture, 2);
+        consoleGrid.Controls.Add(_gamepadOverlay);
+        consoleGrid.SetColumnSpan(_gamepadOverlay, 2);
         consoleGroup.Controls.Add(consoleGrid);
 
         var refresh = new Button { Text = "Actualizar pantallas y audio", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
@@ -168,6 +175,13 @@ public sealed class MainForm : Form
         });
         _moveBigPicture.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.MoveBigPictureToConsoleDisplay = _moveBigPicture.Checked);
         _closeBigPicture.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.CloseBigPictureOnPcMode = _closeBigPicture.Checked);
+        _gamepadOverlay.CheckedChanged += (_, _) =>
+        {
+            if (!_loading)
+            {
+                _app.SetGamepadOverlayEnabled(_gamepadOverlay.Checked);
+            }
+        };
 
         return page;
     }
@@ -313,6 +327,7 @@ public sealed class MainForm : Form
             _moveBigPicture.Checked = Settings.MoveBigPictureToConsoleDisplay;
             _moveBigPicture.Enabled = Settings.LaunchBigPicture;
             _closeBigPicture.Checked = Settings.CloseBigPictureOnPcMode;
+            _gamepadOverlay.Checked = Settings.GamepadOverlayEnabled;
             _showTray.Checked = Settings.ShowTrayIcon;
             _startWithWindows.Checked = StartupManager.IsEnabled;
             _port.Value = Math.Clamp(Settings.Port, (int)_port.Minimum, (int)_port.Maximum);
