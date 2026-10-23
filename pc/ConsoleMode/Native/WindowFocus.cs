@@ -49,6 +49,25 @@ public static class WindowFocus
         return GetForegroundWindow() == hwnd;
     }
 
+    /// <summary>Nombre del proceso dueño de la ventana (sin «.exe»), o cadena vacía si no se puede saber.</summary>
+    public static string ProcessNameOf(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            return "";
+        }
+        GetWindowThreadProcessId(hwnd, out var pid);
+        try
+        {
+            using var p = Process.GetProcessById((int)pid);
+            return p.ProcessName;
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
     /// <summary>Descripción legible de una ventana para el log: programa, clase y título.</summary>
     public static string Describe(IntPtr hwnd)
     {

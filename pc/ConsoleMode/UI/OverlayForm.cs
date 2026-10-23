@@ -46,6 +46,13 @@ public sealed class OverlayForm : Form
     private readonly System.Diagnostics.Stopwatch _focusClock = new();
     private readonly IntPtr _previousForeground;
     private readonly ModeSwitcher _switcher;
+    private readonly Func<bool> _inputHeld;
+    private readonly string _previousProcess;
+    private readonly System.Windows.Forms.Timer _releaseTimer = new() { Interval = 20 };
+    private readonly System.Diagnostics.Stopwatch _releaseClock = new();
+    private int _releasedPolls;
+    private bool _closing;
+    private bool _switchingToPc;
     private readonly List<Item> _items = new();
     private readonly List<Line> _lines = new();
     private Fonts? _fonts;
@@ -62,10 +69,13 @@ public sealed class OverlayForm : Form
     private bool _busy;
     private string? _targetDisplayGdiName;
 
-    public OverlayForm(Icon icon, ModeSwitcher switcher)
+    /// <param name="inputHeld">Si el mando tiene algo pulsado: el overlay no devuelve el foco hasta que se suelta.</param>
+    public OverlayForm(Icon icon, ModeSwitcher switcher, Func<bool> inputHeld)
     {
         _previousForeground = WindowFocus.Foreground;
+        _previousProcess = WindowFocus.ProcessNameOf(_previousForeground);
         _switcher = switcher;
+        _inputHeld = inputHeld;
 
         Text = "Console Mode";
         Icon = icon;
@@ -79,7 +89,8 @@ public sealed class OverlayForm : Form
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
         _idleTimer = new System.Windows.Forms.Timer { Interval = (int)IdleClose.TotalMilliseconds };
-        _idleTimer.Tick += (_, _) => Close();
+        _idleTimer.Tick += (_, _) => CloseWhenReleased();
+        _releaseTimer.Tick += (_, _) => CheckReleased();
         _focusTimer.Tick += (_, _) => EnsureFocus();
 
         // Se calcula con el escalado de la pantalla de destino y se coloca ya en su esquina antes de mostrarse.
@@ -99,12 +110,12 @@ public sealed class OverlayForm : Form
     /// <summary>Acción del mando, del teclado o del ratón mientras el overlay está abierto.</summary>
     private void HandleAction(PadAction action)
     {
-        _idleTimer.Stop();
-        _idleTimer.Start();
-        if (_busy)
+        if (_busy || _closing)
         {
             return;
         }
+        _idleTimer.Stop();
+        _idleTimer.Start();
 
         switch (action)
         {
@@ -119,7 +130,7 @@ public sealed class OverlayForm : Form
                 break;
             case PadAction.Back:
             case PadAction.ToggleOverlay:
-                Close();
+                CloseWhenReleased();
                 break;
         }
     }
@@ -221,6 +232,8 @@ public sealed class OverlayForm : Form
     {
         _idleTimer.Dispose();
         _focusTimer.Dispose();
+        _releaseTimer.Dispose();
+        _switcher.StateChanged -= OnSwitcherStateChanged;
         _foregroundWatcher?.Dispose();
         _foregroundWatcher = null;
         // Solo devolvemos el foco si seguía en el overlay (si el usuario hizo clic en otra ventana, la respetamos).
@@ -348,9 +361,14 @@ public sealed class OverlayForm : Form
         var item = _items[_selected];
         if (item.Kind == ItemKind.SwitchToPc)
         {
-            // Se cierra primero para devolver el foco; el cambio de modo cierra Big Picture y restaura el modo PC.
+            // El overlay se queda delante (con el foco) hasta que Big Picture se ha cerrado. Si se cerrase antes,
+            // Big Picture recuperaría el foco con la A aún pulsada y lanzaría el juego que tuviera seleccionado.
             Log.Info("Overlay: volver a modo PC");
-            Close();
+            _busy = true;
+            _switchingToPc = true;
+            _idleTimer.Stop();
+            SetStatus("Volviendo a modo PC…");
+            _switcher.StateChanged += OnSwitcherStateChanged;
             _ = _switcher.SwitchAsync(AppMode.Pc);
             return;
         }
@@ -623,6 +641,12 @@ public sealed class OverlayForm : Form
         {
             return;
         }
+        if (!ShouldReclaimFocusFrom(hwnd))
+        {
+            Log.Info($"Overlay: se ha cambiado a {WindowFocus.Describe(hwnd)}; se cierra el overlay");
+            Close();
+            return;
+        }
         Log.Info($"Overlay: {WindowFocus.Describe(hwnd)} le ha quitado el foco; recuperándolo");
         _focusLost = true;
         _focusClock.Restart();
@@ -648,6 +672,13 @@ public sealed class OverlayForm : Form
             return;
         }
 
+        if (!ShouldReclaimFocusFrom(WindowFocus.Foreground))
+        {
+            Log.Info($"Overlay: se ha cambiado a {WindowFocus.Describe(WindowFocus.Foreground)}; se cierra el overlay");
+            Close();
+            return;
+        }
+
         if (!_focusLost)
         {
             // Respaldo: cambio de foco que no ha llegado por el aviso de Windows.
@@ -667,6 +698,85 @@ public sealed class OverlayForm : Form
             _focusFailureLogged = true;
             Log.Error($"Overlay: Windows no devuelve el foco al overlay (lo tiene {WindowFocus.Describe(WindowFocus.Foreground)})");
         }
+    }
+
+    /// <summary>
+    /// Solo se recupera el foco si se lo ha quitado Steam o la ventana que estaba delante al abrir (Big Picture o el
+    /// juego). Si el usuario cambia a otra aplicación (con el ratón o Alt+Tab), el overlay se aparta.
+    /// </summary>
+    private bool ShouldReclaimFocusFrom(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero || hwnd == _previousForeground)
+        {
+            return true;
+        }
+        var process = WindowFocus.ProcessNameOf(hwnd);
+        return process.Length == 0 ||
+               string.Equals(process, _previousProcess, StringComparison.OrdinalIgnoreCase) ||
+               SteamProcesses.Contains(process);
+    }
+
+    private static readonly HashSet<string> SteamProcesses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "steam",
+        "steamwebhelper",
+        "gameoverlayui",
+    };
+
+    // ------------------------------------------------------------------
+    // Cierre sin que el botón llegue a Big Picture
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Cierra el overlay cuando el mando ya no tiene nada pulsado. Si se cerrase con B aún pulsado, Big Picture
+    /// recuperaría el foco y también recibiría ese botón.
+    /// </summary>
+    private void CloseWhenReleased()
+    {
+        if (_closing || IsDisposed)
+        {
+            return;
+        }
+        _closing = true;
+        _idleTimer.Stop();
+        _releasedPolls = 0;
+        _releaseClock.Restart();
+        _releaseTimer.Start();
+    }
+
+    private void CheckReleased()
+    {
+        _releasedPolls = _inputHeld() ? 0 : _releasedPolls + 1;
+        // Dos lecturas seguidas sin nada pulsado (~40 ms) o, como mucho, 3 s de espera.
+        if (_releasedPolls >= 2 || _releaseClock.Elapsed > TimeSpan.FromSeconds(3))
+        {
+            _releaseTimer.Stop();
+            Close();
+        }
+    }
+
+    private void OnSwitcherStateChanged(ModeState state)
+    {
+        if (state.Busy)
+        {
+            return;
+        }
+        BeginInvoke(() =>
+        {
+            if (IsDisposed || !_switchingToPc)
+            {
+                return;
+            }
+            _switchingToPc = false;
+            _busy = false;
+            if (state.Error != null)
+            {
+                SetStatus(state.Error, error: true);
+                _idleTimer.Start();
+                return;
+            }
+            CloseWhenReleased();
+        });
     }
 
     // ------------------------------------------------------------------

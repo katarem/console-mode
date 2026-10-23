@@ -27,6 +27,12 @@ public sealed class GamepadWatcher : IDisposable
     /// <summary>Lo actualiza la UI: con el overlay abierto se navega y se lee más a menudo.</summary>
     public volatile bool OverlayOpen;
 
+    /// <summary>Algún mando tiene un botón pulsado o el stick inclinado.</summary>
+    public bool AnyInputHeld => _anyInputHeld;
+
+    private volatile bool _anyInputHeld;
+    private const short StickHeldThreshold = 16000;
+
     public void Start()
     {
         if (_thread != null)
@@ -45,6 +51,7 @@ public sealed class GamepadWatcher : IDisposable
             while (!_cts.IsCancellationRequested)
             {
                 var now = clock.Elapsed;
+                var held = false;
                 for (var i = 0; i < MaxControllers; i++)
                 {
                     if (now < _retryAt[i])
@@ -58,11 +65,16 @@ public sealed class GamepadWatcher : IDisposable
                         continue;
                     }
 
-                    foreach (var action in _navigators[i].Update(state.Gamepad.wButtons, state.Gamepad.sThumbLY, now, OverlayOpen))
+                    var pad = state.Gamepad;
+                    held |= pad.wButtons != 0 ||
+                            Math.Abs((int)pad.sThumbLX) > StickHeldThreshold || Math.Abs((int)pad.sThumbLY) > StickHeldThreshold;
+
+                    foreach (var action in _navigators[i].Update(pad.wButtons, pad.sThumbLY, now, OverlayOpen))
                     {
                         Action?.Invoke(action);
                     }
                 }
+                _anyInputHeld = held;
 
                 _cts.Token.WaitHandle.WaitOne(OverlayOpen ? ActiveInterval : IdleInterval);
             }

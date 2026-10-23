@@ -176,7 +176,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        _overlay = new OverlayForm(AppIcon, Switcher);
+        _overlay = new OverlayForm(AppIcon, Switcher, () => _gamepad?.AnyInputHeld ?? false);
         _overlay.FormClosed += (_, _) =>
         {
             _overlay = null;
@@ -194,13 +194,14 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     private void OnPadAction(PadAction action)
     {
-        if (action == PadAction.ToggleOverlay)
+        if (_overlay != null && !_overlay.IsDisposed)
+        {
+            // Con el overlay abierto, también View + Menú lo gestiona él: espera a que se suelten antes de cerrarse.
+            _overlay.HandlePadAction(action);
+        }
+        else if (action == PadAction.ToggleOverlay)
         {
             ToggleOverlay();
-        }
-        else
-        {
-            _overlay?.HandlePadAction(action);
         }
     }
 
