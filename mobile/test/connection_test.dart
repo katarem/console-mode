@@ -18,6 +18,7 @@ class FakePc {
   final pcId = 'pc-1';
   final tokens = <String, String>{};
   String mode = 'pc';
+  String audio = 'tv';
   late ServerSocket server;
 
   int get port => server.port;
@@ -30,7 +31,17 @@ class FakePc {
   void _handle(Socket s) {
     const nonce = 'n0nce';
     void send(Map<String, dynamic> m) => s.write('${jsonEncode(m)}\n');
-    send({'type': 'hello', 'version': 1, 'pcId': pcId, 'pcName': 'FAKE-PC', 'nonce': nonce});
+    send({'type': 'hello', 'version': 2, 'pcId': pcId, 'pcName': 'FAKE-PC', 'nonce': nonce});
+    void sendDevices() => send({
+          'type': 'devices',
+          'audio': [
+            {'id': 'tv', 'name': 'SAMSUNG', 'current': audio == 'tv'},
+            {'id': 'hp', 'name': 'Headphones', 'current': audio == 'hp'},
+          ],
+          'displays': [
+            {'id': 'd1', 'name': 'SAMSUNG', 'current': true},
+          ],
+        });
     String? device;
     s.cast<List<int>>().transform(utf8.decoder).transform(const LineSplitter()).listen((line) async {
       final msg = jsonDecode(line) as Map<String, dynamic>;
@@ -53,6 +64,13 @@ class FakePc {
           device = msg['deviceId'] as String;
           send({'type': 'auth_ok', 'pcName': 'FAKE-PC'});
           send({'type': 'status', 'mode': mode, 'busy': false, 'error': null});
+        case 'get_devices':
+          if (device == null) return;
+          sendDevices();
+        case 'set_audio':
+          if (device == null) return;
+          audio = msg['id'] as String;
+          sendDevices();
         case 'set_mode':
           if (device == null) return;
           send({'type': 'status', 'mode': mode, 'busy': true, 'error': null});
@@ -99,6 +117,13 @@ void main() {
 
     conn.setMode(PcMode.console);
     await waitFor(() => conn.mode == PcMode.console && !conn.busy);
+
+    // Cambio rápido de audio (protocolo 2)
+    await waitFor(() => conn.audio.length == 2);
+    expect(conn.supportsQuickSwitch, isTrue);
+    expect(conn.audio.firstWhere((o) => o.current).id, 'tv');
+    conn.setAudio('hp');
+    await waitFor(() => conn.audio.firstWhere((o) => o.current).id == 'hp');
 
     conn.dispose();
     await pc.stop();

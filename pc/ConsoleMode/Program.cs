@@ -17,6 +17,13 @@ internal static class Program
         var exitRequested = HasArg(args, ExitArg);
 
         using var mutex = new Mutex(initiallyOwned: true, MutexName, out var isFirstInstance);
+        var afterUpdate = HasArg(args, Updater.AfterUpdateArg);
+        if (!isFirstInstance && afterUpdate)
+        {
+            // Nos ha lanzado la versión anterior al actualizarse: esperamos a que termine de cerrarse.
+            isFirstInstance = AcquireMutex(mutex, TimeSpan.FromSeconds(20));
+        }
+
         if (!isFirstInstance)
         {
             // Ya está en marcha (quizá sin icono en la bandeja): le pedimos que muestre su ventana o que se cierre.
@@ -47,7 +54,7 @@ internal static class Program
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Error("Excepción no controlada", e.ExceptionObject as Exception);
 
         var startInBackground = HasArg(args, StartupManager.BackgroundArg);
-        using (var context = new TrayApplicationContext(showWindow: !startInBackground))
+        using (var context = new TrayApplicationContext(showWindow: !startInBackground, afterUpdate))
         {
             Application.Run(context);
         }
@@ -56,6 +63,18 @@ internal static class Program
 
     private static bool HasArg(string[] args, string name) =>
         args.Any(a => string.Equals(a, name, StringComparison.OrdinalIgnoreCase));
+
+    private static bool AcquireMutex(Mutex mutex, TimeSpan timeout)
+    {
+        try
+        {
+            return mutex.WaitOne(timeout);
+        }
+        catch (AbandonedMutexException)
+        {
+            return true; // la otra instancia terminó sin liberarlo: ya es nuestro
+        }
+    }
 
     private static void WaitForOtherInstanceToExit(Mutex mutex)
     {

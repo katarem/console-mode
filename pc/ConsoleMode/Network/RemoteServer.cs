@@ -15,7 +15,8 @@ public sealed record PairRequest(string DeviceId, string DeviceName, string Remo
 /// </summary>
 public sealed class RemoteServer : IDisposable
 {
-    public const int ProtocolVersion = 1;
+    /// <summary>2: añade get_devices / set_audio / set_display (cambios rápidos temporales).</summary>
+    public const int ProtocolVersion = 2;
     private const int MaxLineLength = 16 * 1024;
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan PairingTimeout = TimeSpan.FromSeconds(90);
@@ -33,7 +34,15 @@ public sealed class RemoteServer : IDisposable
         _settings = settings;
         _switcher = switcher;
         _confirmPairing = confirmPairing;
-        _switcher.StateChanged += state => Broadcast(StatusMessage(state));
+        _switcher.StateChanged += state =>
+        {
+            Broadcast(StatusMessage(state));
+            if (!state.Busy)
+            {
+                BroadcastDevices(); // el modo cambia la pantalla y el audio
+            }
+        };
+        QuickSwitch.Changed += BroadcastDevices;
     }
 
     /// <summary>Se ha añadido un dispositivo de confianza o ha cambiado su última conexión.</summary>
@@ -210,6 +219,36 @@ public sealed class RemoteServer : IDisposable
                 await session.SendAsync(StatusMessage(_switcher.State));
                 break;
 
+            case "get_devices":
+                await session.SendAsync(DevicesMessage());
+                break;
+
+            case "set_audio":
+            case "set_display":
+                var id = (string?)msg["id"];
+                if (string.IsNullOrEmpty(id))
+                {
+                    await session.SendAsync(Error("Falta el id"));
+                    break;
+                }
+                try
+                {
+                    var origin = $"Móvil ({session.Device.Name})";
+                    if (type == "set_audio")
+                    {
+                        await Task.Run(() => QuickSwitch.SetAudio(id, origin));
+                    }
+                    else
+                    {
+                        await Task.Run(() => QuickSwitch.SetDisplay(id, origin));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    await session.SendAsync(Error(ex.Message));
+                }
+                break;
+
             case "set_mode":
                 var mode = AppModeExtensions.FromWire((string?)msg["mode"]);
                 if (mode == null)
@@ -374,6 +413,29 @@ public sealed class RemoteServer : IDisposable
         {
             _ = s.SendAsync(message.DeepClone().AsObject()).ContinueWith(t => s.Close(), TaskContinuationOptions.OnlyOnFaulted);
         }
+    }
+
+    /// <summary>Envía la lista de audio y pantallas a los móviles conectados (solo si hay alguno).</summary>
+    private void BroadcastDevices()
+    {
+        if (ConnectedDevices > 0)
+        {
+            Broadcast(DevicesMessage());
+        }
+    }
+
+    private static JsonObject DevicesMessage()
+    {
+        static JsonArray ToJson(IEnumerable<QuickOption> options) => new(options
+            .Select(o => (JsonNode)new JsonObject { ["id"] = o.Id, ["name"] = o.Name, ["current"] = o.IsCurrent })
+            .ToArray());
+
+        return new JsonObject
+        {
+            ["type"] = "devices",
+            ["audio"] = ToJson(QuickSwitch.AudioOptions()),
+            ["displays"] = ToJson(QuickSwitch.DisplayOptions()),
+        };
     }
 
     private static JsonObject StatusMessage(ModeState state) => new()

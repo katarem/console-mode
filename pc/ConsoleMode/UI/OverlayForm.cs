@@ -268,22 +268,8 @@ public sealed class OverlayForm : Form
         {
             _items.Add(new Item(ItemKind.SwitchToPc, "pc", "Volver a modo PC", false));
         }
-        try
-        {
-            _items.AddRange(AudioManager.GetOutputDevices().Select(a => new Item(ItemKind.Audio, a.Id, a.Name, a.IsDefault)));
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Overlay: no se pudieron leer los dispositivos de audio", ex);
-        }
-        try
-        {
-            _items.AddRange(DisplayManager.GetDisplays().Select(d => new Item(ItemKind.Display, d.Id, d.FriendlyName, d.IsPrimary)));
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Overlay: no se pudieron leer las pantallas", ex);
-        }
+        _items.AddRange(QuickSwitch.AudioOptions().Select(a => new Item(ItemKind.Audio, a.Id, a.Name, a.IsCurrent)));
+        _items.AddRange(QuickSwitch.DisplayOptions().Select(d => new Item(ItemKind.Display, d.Id, d.Name, d.IsCurrent)));
 
         var index = _items.FindIndex(i => (i.Kind, i.Id) == selectedKey);
         if (index < 0)
@@ -379,20 +365,15 @@ public sealed class OverlayForm : Form
         {
             if (item.Kind == ItemKind.Audio)
             {
-                await Task.Run(() => AudioManager.SetDefaultOutput(item.Id));
+                await Task.Run(() => QuickSwitch.SetAudio(item.Id, "Overlay"));
                 SetStatus($"Audio: {item.Name}");
             }
             else
             {
-                await Task.Run(() => DisplayManager.SetPrimary(item.Id));
+                await Task.Run(() => QuickSwitch.SetDisplay(item.Id, "Overlay"));
                 _targetDisplayGdiName = DisplayManager.Find(item.Id)?.GdiName;
                 SetStatus($"Pantalla principal: {item.Name}");
-                if (SteamBigPicture.IsOpen)
-                {
-                    _ = Task.Run(() => SteamBigPicture.EnsureOnDisplayAsync(item.Id, TimeSpan.FromSeconds(5)));
-                }
             }
-            Log.Info($"Overlay: {_status} (temporal)");
         }
         catch (Exception ex)
         {

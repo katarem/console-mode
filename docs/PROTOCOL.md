@@ -68,6 +68,22 @@ PC    → {"type":"status","mode":"pc"|"console","busy":true|false,"error":null|
 PC    → {"type":"error","message":"…"}
 ```
 
+### Cambio rápido de audio y pantalla (protocolo 2)
+
+El `hello` del PC indica `"version":2` o superior. Estos cambios son temporales: no se guardan en los modos.
+
+```
+móvil → {"type":"get_devices"}
+móvil → {"type":"set_audio","id":"<id del dispositivo>"}
+móvil → {"type":"set_display","id":"<id de la pantalla>"}
+PC    → {"type":"devices",
+         "audio":[{"id":"…","name":"SAMSUNG (NVIDIA High Definition Audio)","current":true}, …],
+         "displays":[{"id":"…","name":"SAMSUNG","current":true}, …]}
+```
+
+El PC envía `devices` a todos los móviles conectados cuando cambia el audio o la pantalla (desde un móvil, desde el
+overlay del mando o por un cambio de modo).
+
 El PC envía `status` a todos los móviles conectados cada vez que cambia el modo, venga el cambio de un móvil,
 de la ventana del PC o del icono de la bandeja. Las conexiones sin actividad durante 60 s se cierran (el móvil
 envía `ping` cada 15 s).

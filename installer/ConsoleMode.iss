@@ -76,7 +76,8 @@ Root: HKCU; Subkey: "{#RunKey}"; ValueType: string; ValueName: "ConsoleMode"; Va
 ; Regla del firewall para el puerto TCP de control y el descubrimiento UDP (se borra antes para no duplicarla).
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#FirewallRule}"""; Flags: runhidden; Tasks: firewall
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""{#FirewallRule}"" dir=in action=allow program=""{app}\{#AppExe}"" enable=yes profile=private"; Flags: runhidden; Tasks: firewall
-Filename: "{app}\{#AppExe}"; Description: "Abrir {#AppName}"; Flags: nowait postinstall skipifsilent runasoriginaluser
+; Sin «skipifsilent»: al actualizar desde la app (instalador en modo /SILENT) también se vuelve a abrir.
+Filename: "{app}\{#AppExe}"; Description: "Abrir {#AppName}"; Flags: nowait postinstall runasoriginaluser
 
 [UninstallRun]
 Filename: "{app}\{#AppExe}"; Parameters: "--exit"; Flags: runhidden waituntilterminated; RunOnceId: "CloseApp"

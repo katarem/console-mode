@@ -22,6 +22,11 @@ class PcConnection extends ChangeNotifier {
   bool busy = false;
   String? lastError;
 
+  /// El PC permite cambiar audio y pantalla al momento (protocolo 2 o superior).
+  bool supportsQuickSwitch = false;
+  List<QuickOption> audio = const [];
+  List<QuickOption> displays = const [];
+
   SavedPc get pc => _pc;
 
   LineConnection? _conn;
@@ -59,6 +64,19 @@ class PcConnection extends ChangeNotifier {
     busy = true;
     _notify();
     conn.send({'type': 'set_mode', 'mode': target.wire});
+  }
+
+  /// Cambia la salida de audio del PC sin tocar la configuración de sus modos.
+  void setAudio(String id) => _sendQuick('set_audio', id);
+
+  /// Cambia la pantalla principal del PC sin tocar la configuración de sus modos.
+  void setDisplay(String id) => _sendQuick('set_display', id);
+
+  void _sendQuick(String type, String id) {
+    final conn = _conn;
+    if (conn == null || status != ConnectionStatus.connected || !supportsQuickSwitch) return;
+    lastError = null;
+    conn.send({'type': type, 'id': id});
   }
 
   Future<void> _connect() async {
@@ -108,6 +126,7 @@ class PcConnection extends ChangeNotifier {
   Future<void> _session(LineConnection conn) async {
     final hello = await conn.next(timeout: const Duration(seconds: 5));
     if (hello == null || hello['type'] != 'hello') return;
+    supportsQuickSwitch = ((hello['version'] as num?) ?? 1) >= 2;
     if (hello['pcId'] != _pc.id) {
       lastError = 'En esa dirección hay otro PC.';
       return;
@@ -136,6 +155,7 @@ class PcConnection extends ChangeNotifier {
             _pc = _pc.copyWith(name: name);
             await _storage.upsertPc(_pc);
           }
+          if (supportsQuickSwitch) conn.send({'type': 'get_devices'});
           _notify();
         case 'auth_failed':
           status = ConnectionStatus.unauthorized;
@@ -143,6 +163,10 @@ class PcConnection extends ChangeNotifier {
           lastError = 'Este móvil ya no es de confianza en el PC. Vuelve a emparejarlo.';
           _notify();
           return;
+        case 'devices':
+          audio = QuickOption.listFromJson(msg['audio']);
+          displays = QuickOption.listFromJson(msg['displays']);
+          _notify();
         case 'status':
           mode = PcMode.fromWire(msg['mode'] as String?);
           busy = msg['busy'] == true;

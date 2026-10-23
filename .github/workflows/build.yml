@@ -11,8 +11,64 @@ permissions:
   contents: write
 
 jobs:
+  # Decide qué apps hay que compilar según lo que ha cambiado:
+  # - push a main: cambios del push (before..after)
+  # - etiqueta vX.Y.Z: cambios desde la etiqueta anterior
+  # - pull request: cambios respecto a la rama base
+  # - lanzado a mano, primera etiqueta o sin historial: todo
+  changes:
+    name: Detectar cambios
+    runs-on: ubuntu-latest
+    outputs:
+      pc: ${{ steps.diff.outputs.pc }}
+      mobile: ${{ steps.diff.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          base=""
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            base=$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_SHA}^" 2>/dev/null || true)
+          elif [[ "$EVENT" == pull_request ]]; then
+            base="origin/$BASE_REF"
+          elif [[ "$EVENT" == push ]]; then
+            base="$BEFORE"
+          fi
+
+          if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "Sin base con la que comparar: se compila todo"
+            echo "pc=true" >> "$GITHUB_OUTPUT"
+            echo "mobile=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed=$(git diff --name-only "$base" HEAD)
+          echo "Cambios desde $base:"
+          echo "$changed"
+
+          # Si cambia la propia CI, se compila todo para comprobarla.
+          ci=false
+          grep -q '^\.github/workflows/' <<< "$changed" && ci=true
+
+          pc=false
+          mobile=false
+          if [[ $ci == true ]] || grep -qE '^(pc|installer)/' <<< "$changed"; then pc=true; fi
+          if [[ $ci == true ]] || grep -qE '^mobile/' <<< "$changed"; then mobile=true; fi
+          echo "pc=$pc" >> "$GITHUB_OUTPUT"
+          echo "mobile=$mobile" >> "$GITHUB_OUTPUT"
+          echo "PC: $pc · Móvil: $mobile"
+
   windows:
     name: App de PC (Windows)
+    needs: changes
+    if: needs.changes.outputs.pc == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +108,8 @@ jobs:
 
   android:
     name: App móvil (Android)
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -73,7 +131,8 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
-      - run: flutter build apk --release
+      # La versión se incrusta en la app para que pueda buscar actualizaciones.
+      - run: flutter build apk --release --dart-define=APP_VERSION=$(sed -nE 's/^version: *([^+]+).*/\1/p' pubspec.yaml)
 
       - name: Renombrar APK
         run: |
@@ -87,8 +146,14 @@ jobs:
 
   release:
     name: Publicar release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, android]
+    # Se publica con lo que se haya compilado: si una app no ha cambiado desde la etiqueta anterior, su archivo no
+    # se vuelve a subir (la app de esa plataforma busca su actualización en las releases anteriores).
+    if: >
+      always() && startsWith(github.ref, 'refs/tags/v') &&
+      needs.changes.result == 'success' &&
+      needs.windows.result != 'failure' && needs.android.result != 'failure' &&
+      (needs.windows.result == 'success' || needs.android.result == 'success')
+    needs: [changes, windows, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

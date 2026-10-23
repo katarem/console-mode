@@ -74,6 +74,24 @@ class PairTarget {
   }
 }
 
+/// Salida de audio o pantalla que se puede elegir al momento (cambio temporal, no se guarda en los modos).
+class QuickOption {
+  const QuickOption({required this.id, required this.name, required this.current});
+
+  final String id;
+  final String name;
+  final bool current;
+
+  static List<QuickOption> listFromJson(Object? json) => [
+        for (final item in (json as List? ?? const []).cast<Map<String, dynamic>>())
+          QuickOption(
+            id: item['id'] as String,
+            name: item['name'] as String,
+            current: item['current'] == true,
+          ),
+      ];
+}
+
 enum PcMode {
   pc('pc', 'PC'),
   console('console', 'Consola');

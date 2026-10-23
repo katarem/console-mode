@@ -47,6 +47,10 @@ public sealed class MainForm : Form
     private readonly CheckBox _showTray = new() { Text = "Mostrar icono en la bandeja del sistema (iconos ocultos)", AutoSize = true };
     private readonly CheckBox _startWithWindows = new() { Text = "Iniciar con Windows (en segundo plano)", AutoSize = true };
     private readonly NumericUpDown _port = new() { Minimum = 1024, Maximum = 65535, Width = 90 };
+    private readonly CheckBox _checkUpdates = new() { Text = "Buscar actualizaciones automáticamente", AutoSize = true };
+    private readonly Label _updateLabel = new() { AutoSize = true, MaximumSize = new Size(540, 0), Margin = new Padding(3, 6, 3, 6) };
+    private readonly Button _checkUpdatesButton = new() { Text = "Buscar actualizaciones", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
+    private readonly Button _installUpdateButton = new() { Text = "Actualizar ahora", AutoSize = true, Padding = new Padding(8, 2, 8, 2), Visible = false };
 
     private bool _loading;
 
@@ -277,6 +281,7 @@ public sealed class MainForm : Form
         layout.Controls.Add(_startWithWindows);
         layout.Controls.Add(new Label { AutoSize = true, Height = 8 });
         layout.Controls.Add(portRow);
+        layout.Controls.Add(BuildUpdatesGroup());
         layout.Controls.Add(buttons);
         page.Controls.Add(layout);
 
@@ -313,6 +318,106 @@ public sealed class MainForm : Form
         return page;
     }
 
+    private GroupBox BuildUpdatesGroup()
+    {
+        var group = new GroupBox
+        {
+            Text = "Actualizaciones",
+            AutoSize = true,
+            Padding = new Padding(10, 6, 10, 8),
+            Margin = new Padding(0, 4, 0, 8),
+            MinimumSize = new Size(540, 0),
+        };
+        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        buttons.Controls.Add(_checkUpdatesButton);
+        buttons.Controls.Add(_installUpdateButton);
+        flow.Controls.Add(new Label
+        {
+            Text = $"Versión {Updater.CurrentVersion} · {(Updater.IsInstalled ? "instalada" : "portable")}",
+            AutoSize = true,
+            Margin = new Padding(3, 3, 3, 3),
+        });
+        flow.Controls.Add(_updateLabel);
+        flow.Controls.Add(buttons);
+        flow.Controls.Add(_checkUpdates);
+        group.Controls.Add(flow);
+
+        _checkUpdates.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.CheckForUpdates = _checkUpdates.Checked);
+        _checkUpdatesButton.Click += async (_, _) =>
+        {
+            _checkUpdatesButton.Enabled = false;
+            _updateLabel.Text = "Buscando…";
+            try
+            {
+                var update = await _app.CheckForUpdatesAsync(manual: true);
+                if (update == null)
+                {
+                    _updateLabel.Text = "Tienes la última versión.";
+                }
+            }
+            catch (Exception ex)
+            {
+                _updateLabel.Text = $"No se pudo comprobar: {ex.Message}";
+            }
+            finally
+            {
+                _checkUpdatesButton.Enabled = true;
+            }
+        };
+        _installUpdateButton.Click += async (_, _) =>
+        {
+            if (_app.AvailableUpdate is not { } update)
+            {
+                return;
+            }
+            _installUpdateButton.Enabled = false;
+            _checkUpdatesButton.Enabled = false;
+            try
+            {
+                var progress = new Progress<int>(p => _updateLabel.Text = $"Descargando la versión {update.Version}… {p} %");
+                await _app.InstallUpdateAsync(update, progress);
+                // Si seguimos aquí es que se canceló el aviso de administrador del instalador.
+                _updateLabel.Text = "Actualización cancelada.";
+            }
+            catch (Exception ex)
+            {
+                _updateLabel.Text = $"No se pudo actualizar: {ex.Message}";
+                Log.Error("Error al actualizar", ex);
+            }
+            finally
+            {
+                _installUpdateButton.Enabled = true;
+                _checkUpdatesButton.Enabled = true;
+            }
+        };
+        _app.UpdateStateChanged += ShowUpdateState;
+        Disposed += (_, _) => _app.UpdateStateChanged -= ShowUpdateState;
+        ShowUpdateState();
+        return group;
+    }
+
+    private void ShowUpdateState()
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+        var update = _app.AvailableUpdate;
+        _installUpdateButton.Visible = update != null;
+        if (update != null)
+        {
+            _updateLabel.Text = $"Hay una versión nueva: {update.Version}. " +
+                                (Updater.IsInstalled
+                                    ? "Se instalará con el instalador (pedirá permiso de administrador) y la app se volverá a abrir."
+                                    : "Se sustituirá este .exe y la app se volverá a abrir.");
+        }
+        else if (string.IsNullOrEmpty(_updateLabel.Text))
+        {
+            _updateLabel.Text = "Sin comprobar todavía.";
+        }
+    }
+
     // =====================================================================================
     // Datos
     // =====================================================================================
@@ -331,6 +436,7 @@ public sealed class MainForm : Form
             _showTray.Checked = Settings.ShowTrayIcon;
             _startWithWindows.Checked = StartupManager.IsEnabled;
             _port.Value = Math.Clamp(Settings.Port, (int)_port.Minimum, (int)_port.Maximum);
+            _checkUpdates.Checked = Settings.CheckForUpdates;
         }
         finally
         {

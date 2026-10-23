@@ -21,9 +21,11 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly RegisteredWaitHandle _exitWait;
     private MainForm? _form;
     private GamepadWatcher? _gamepad;
+    private readonly System.Windows.Forms.Timer _updateTimer;
+    private Version? _notifiedUpdate;
     private OverlayForm? _overlay;
 
-    public TrayApplicationContext(bool showWindow)
+    public TrayApplicationContext(bool showWindow, bool afterUpdate = false)
     {
         // Control invisible para volver al hilo de UI desde los hilos de red.
         _ui = new Control();
@@ -93,6 +95,24 @@ public sealed class TrayApplicationContext : ApplicationContext
         _showWait = ThreadPool.RegisterWaitForSingleObject(_showEvent, (_, _) => RunOnUi(ShowMainWindow), null, -1, false);
         _exitEvent = new EventWaitHandle(false, EventResetMode.AutoReset, Program.ExitEventName);
         _exitWait = ThreadPool.RegisterWaitForSingleObject(_exitEvent, (_, _) => RunOnUi(Exit), null, -1, true);
+
+        if (afterUpdate)
+        {
+            Updater.CleanupAfterUpdate();
+            Notify($"Console Mode se ha actualizado a la versión {Updater.CurrentVersion}.");
+        }
+
+        // Primera búsqueda de actualizaciones al poco de arrancar y luego cada 12 horas.
+        _updateTimer = new System.Windows.Forms.Timer { Interval = (int)TimeSpan.FromSeconds(20).TotalMilliseconds };
+        _updateTimer.Tick += async (_, _) =>
+        {
+            _updateTimer.Interval = (int)TimeSpan.FromHours(12).TotalMilliseconds;
+            if (Settings.CheckForUpdates)
+            {
+                await CheckForUpdatesAsync(manual: false);
+            }
+        };
+        _updateTimer.Start();
 
         if (showWindow)
         {
@@ -205,6 +225,45 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
+    /// <summary>Última actualización encontrada (null si está al día o no se ha comprobado).</summary>
+    public UpdateInfo? AvailableUpdate { get; private set; }
+
+    public event Action? UpdateStateChanged;
+
+    public async Task<UpdateInfo?> CheckForUpdatesAsync(bool manual)
+    {
+        try
+        {
+            AvailableUpdate = await Updater.CheckAsync();
+            if (AvailableUpdate != null && !manual && _notifiedUpdate != AvailableUpdate.Version)
+            {
+                _notifiedUpdate = AvailableUpdate.Version;
+                Notify($"Hay una versión nueva de Console Mode ({AvailableUpdate.Version}). Actualízala desde Ajustes.");
+            }
+            UpdateStateChanged?.Invoke();
+            return AvailableUpdate;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("No se pudo buscar actualizaciones", ex);
+            if (manual)
+            {
+                throw;
+            }
+            return null;
+        }
+    }
+
+    /// <summary>Descarga y aplica la actualización. Si sale bien, la app se cierra para dejar paso a la nueva.</summary>
+    public async Task InstallUpdateAsync(UpdateInfo update, IProgress<int>? progress)
+    {
+        var file = await Updater.DownloadAsync(update, progress);
+        if (Updater.Apply(update, file))
+        {
+            Exit();
+        }
+    }
+
     public void Exit()
     {
         _showWait.Unregister(null);
@@ -213,6 +272,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         Server.Dispose();
         Discovery.Dispose();
         _gamepad?.Dispose();
+        _updateTimer.Dispose();
         _overlay?.Close();
         _form?.Close();
         _form?.Dispose();

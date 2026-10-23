@@ -35,6 +35,9 @@ Tiene dos partes:
 - **Iniciar con Windows** (opcional), directamente en segundo plano.
 - **Overlay con el mando**: mantén **View + Menú** durante 1 segundo en un mando Xbox para cambiar la salida de audio
   o la pantalla principal desde el sofá (ver más abajo).
+- **Cambio rápido desde el móvil**: debajo del interruptor puedes elegir la salida de audio y la pantalla principal
+  del PC al momento, sin cambiar la configuración de tus modos.
+- **Actualizaciones desde la app**, tanto en el PC como en Android.
 - Si el PC cambia de IP, el móvil lo vuelve a encontrar solo.
 - **Instalador** o **versión portable**, a tu elección.
 
@@ -133,6 +136,21 @@ Notas:
 - No se ve encima de juegos en **pantalla completa exclusiva**. Con «ventana sin bordes» y en Big Picture sí.
 - Se puede desactivar en *Modos → Modo Consola*. También se abre desde el menú del icono de la bandeja.
 
+### Actualizaciones
+
+- **PC**: Console Mode busca versiones nuevas al arrancar y cada 12 horas (se puede desactivar en *Ajustes*). Si hay
+  una, avisa en el icono de la bandeja y en *Ajustes → Actualizaciones* aparece **Actualizar ahora**:
+  - **Versión instalada**: descarga el instalador nuevo y lo ejecuta en modo silencioso. Windows pide permiso de
+    administrador, y al terminar la app se vuelve a abrir sola.
+  - **Versión portable**: descarga el `.exe` nuevo, sustituye al actual (mismo nombre y carpeta) y se vuelve a abrir.
+  - Antes de aplicar, se comprueba el SHA-256 del archivo descargado con el que publica GitHub.
+- **Android**: al abrir la app se comprueba si hay un APK nuevo y aparece un aviso con **Actualizar**. También puedes
+  buscarlo con el botón de actualización de la barra superior. Android descarga el APK y, al tocar la notificación,
+  lo instala encima sin perder los PCs emparejados.
+
+Cada app busca su propio archivo en las últimas releases (`ConsoleMode-Setup-X.Y.Z.exe`,
+`ConsoleMode-X.Y.Z-portable.exe` o `ConsoleMode-X.Y.Z.apk`), así que una release no tiene por qué traer las dos.
+
 ### Segundo plano e inicio con Windows
 
 En la pestaña *Ajustes*:
@@ -187,8 +205,12 @@ Para generar el instalador hace falta [Inno Setup 6](https://jrsoftware.org/isin
 iscc /DAppVersion=1.1.0 /DSourceExe=..\publish\ConsoleMode.exe installer\ConsoleMode.iss
 ```
 
-Al subir una etiqueta `vX.Y.Z`, GitHub Actions compila todo y crea una release con el instalador, la versión
-portable y el APK.
+GitHub Actions solo compila la app que ha cambiado: `pc/` o `installer/` para la de Windows y `mobile/` para la
+móvil. Si cambia la propia CI, compila las dos. Al subir una etiqueta `vX.Y.Z`, se compara con la etiqueta anterior y
+la release lleva los archivos de las apps que hayan cambiado.
+
+La versión de cada app es independiente: `<Version>` en `pc/ConsoleMode/ConsoleMode.csproj` y `version:` en
+`mobile/pubspec.yaml`. El nombre de cada archivo de la release lleva la versión de su app.
 
 ## Estructura
 

@@ -89,6 +89,9 @@ public sealed class AppSettings
     /// <summary>Mantener View + Menú en un mando Xbox abre el overlay de audio y pantalla.</summary>
     public bool GamepadOverlayEnabled { get; set; } = true;
 
+    /// <summary>Buscar versiones nuevas en GitHub al arrancar y cada 12 horas.</summary>
+    public bool CheckForUpdates { get; set; } = true;
+
     public List<TrustedDevice> TrustedDevices { get; set; } = new();
 
     public ModeProfile ProfileFor(AppMode mode) => mode == AppMode.Console ? ConsoleProfile : PcProfile;

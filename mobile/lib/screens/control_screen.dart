@@ -69,6 +69,13 @@ class _ControlScreenState extends State<ControlScreen> with WidgetsBindingObserv
                           onChanged: c.setMode,
                         ),
                       ),
+                      if (connected && c.supportsQuickSwitch) ...[
+                        const SizedBox(height: 24),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 360),
+                          child: _QuickSwitchCard(connection: c),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -126,5 +133,88 @@ class _StatusBanner extends StatelessWidget {
         ],
       ],
     );
+  }
+}
+
+/// Cambio rápido de audio y pantalla principal: se aplica al momento y no se guarda en los modos.
+class _QuickSwitchCard extends StatelessWidget {
+  const _QuickSwitchCard({required this.connection});
+
+  final PcConnection connection;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = connection;
+    final theme = Theme.of(context);
+    String currentName(List<QuickOption> options) =>
+        options.where((o) => o.current).map((o) => o.name).firstOrNull ?? 'Sin datos';
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Text('Cambio rápido', style: theme.textTheme.titleMedium),
+          ),
+          ListTile(
+            leading: const Icon(Icons.volume_up_outlined),
+            title: const Text('Audio'),
+            subtitle: Text(currentName(c.audio), maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: const Icon(Icons.chevron_right),
+            enabled: c.audio.isNotEmpty && !c.busy,
+            onTap: () => _pick(context, 'Salida de audio', c.audio, c.setAudio),
+          ),
+          ListTile(
+            leading: const Icon(Icons.monitor_outlined),
+            title: const Text('Pantalla principal'),
+            subtitle: Text(currentName(c.displays), maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: const Icon(Icons.chevron_right),
+            enabled: c.displays.isNotEmpty && !c.busy,
+            onTap: () => _pick(context, 'Pantalla principal', c.displays, c.setDisplay),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Text(
+              'Temporal: no cambia la configuración de tus modos. El próximo cambio de modo aplica lo configurado en el PC.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pick(
+    BuildContext context,
+    String title,
+    List<QuickOption> options,
+    void Function(String id) onSelected,
+  ) async {
+    final id = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+              child: Text(title, style: Theme.of(context).textTheme.titleLarge),
+            ),
+            for (final o in options)
+              ListTile(
+                leading: Icon(o.current ? Icons.radio_button_checked : Icons.radio_button_unchecked),
+                title: Text(o.name),
+                onTap: () => Navigator.pop(context, o.id),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (id != null && !options.any((o) => o.id == id && o.current)) {
+      onSelected(id);
+    }
   }
 }

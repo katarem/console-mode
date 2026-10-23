@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/models.dart';
 import '../services/storage.dart';
+import '../services/updater.dart';
 import 'control_screen.dart';
 import 'discover_screen.dart';
 import 'pairing_screen.dart';
@@ -20,6 +21,48 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   AppStorage get storage => widget.storage;
 
+  AppUpdate? _update;
+  bool _checkingUpdate = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (Updater.supported) _checkUpdate(manual: false);
+  }
+
+  Future<void> _checkUpdate({required bool manual}) async {
+    if (_checkingUpdate) return;
+    setState(() => _checkingUpdate = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final update = await Updater.check();
+      if (!mounted) return;
+      setState(() => _update = update);
+      if (manual && update == null) {
+        messenger.showSnackBar(SnackBar(content: Text('Tienes la última versión ($appVersion).')));
+      }
+    } catch (e) {
+      if (manual && mounted) {
+        messenger.showSnackBar(SnackBar(content: Text('No se pudo buscar actualizaciones: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _checkingUpdate = false);
+    }
+  }
+
+  Future<void> _installUpdate(AppUpdate update) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await Updater.openApk(update);
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Descargando la actualización. Cuando termine, toca la notificación para instalarla.'),
+        duration: Duration(seconds: 6),
+      ));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('No se pudo abrir la descarga: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final pcs = storage.pcs;
@@ -27,6 +70,14 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Console Mode'),
         actions: [
+          if (Updater.supported)
+            IconButton(
+              tooltip: 'Buscar actualizaciones (versión $appVersion)',
+              icon: _checkingUpdate
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.system_update_outlined),
+              onPressed: _checkingUpdate ? null : () => _checkUpdate(manual: true),
+            ),
           IconButton(
             tooltip: 'Nombre de este móvil',
             icon: const Icon(Icons.badge_outlined),
@@ -34,7 +85,20 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: pcs.isEmpty ? _empty(context) : _list(pcs),
+      body: Column(
+        children: [
+          if (_update case final update?)
+            MaterialBanner(
+              leading: const Icon(Icons.system_update),
+              content: Text('Hay una versión nueva de Console Mode: ${update.version} (tienes $appVersion).'),
+              actions: [
+                TextButton(onPressed: () => setState(() => _update = null), child: const Text('Más tarde')),
+                FilledButton(onPressed: () => _installUpdate(update), child: const Text('Actualizar')),
+              ],
+            ),
+          Expanded(child: pcs.isEmpty ? _empty(context) : _list(pcs)),
+        ],
+      ),
       floatingActionButton: pcs.isEmpty
           ? null
           : FloatingActionButton.extended(
