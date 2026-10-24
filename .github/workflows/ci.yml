@@ -28,6 +28,7 @@ jobs:
     outputs:
       pc: ${{ steps.diff.outputs.pc }}
       mobile: ${{ steps.diff.outputs.mobile }}
+      android: ${{ steps.diff.outputs.android }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,9 +49,13 @@ jobs:
           mobile=false
           if [[ $ci == true ]] || grep -qE '^(pc|installer)/' <<< "$changed"; then pc=true; fi
           if [[ $ci == true ]] || grep -qE '^mobile/' <<< "$changed"; then mobile=true; fi
+          # Si cambia la configuración de Android (Gradle, firma...), también se compila el APK.
+          android=false
+          if grep -q '^mobile/android/' <<< "$changed"; then android=true; fi
           echo "pc=$pc" >> "$GITHUB_OUTPUT"
           echo "mobile=$mobile" >> "$GITHUB_OUTPUT"
-          echo "PC: $pc · Móvil: $mobile"
+          echo "android=$android" >> "$GITHUB_OUTPUT"
+          echo "PC: $pc · Móvil: $mobile · APK: $android"
 
   pc:
     name: App de PC (compilar)
@@ -86,3 +91,14 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+
+      - if: needs.changes.outputs.android == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      # Sin key.properties se firma con la clave de depuración: solo comprueba que Gradle compila.
+      - if: needs.changes.outputs.android == 'true'
+        run: flutter build apk --release

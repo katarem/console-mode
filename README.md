@@ -260,6 +260,29 @@ GitHub Actions tiene dos workflows:
 
 Si cambian los propios workflows, se compilan las dos apps.
 
+### Firma del APK
+
+Android solo instala una actualización encima de la app si está firmada con **la misma clave**. La CI firma el APK con
+la clave guardada en estos secretos del repositorio (*Settings → Secrets and variables → Actions*):
+
+| Secreto | Contenido |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | El archivo `.jks` en Base64. |
+| `ANDROID_KEYSTORE_PASSWORD` | Contraseña del almacén. |
+| `ANDROID_KEY_ALIAS` | Alias de la clave (por ejemplo `upload`). |
+| `ANDROID_KEY_PASSWORD` | Contraseña de la clave (opcional si es la misma que la del almacén). |
+
+Para crearla una sola vez, con el `keytool` de Java o el de Android Studio (`jbr\bin\keytool.exe`):
+
+```powershell
+keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("upload-keystore.jks")) | Set-Clipboard   # pega esto en ANDROID_KEYSTORE_BASE64
+```
+
+Guarda una copia del `.jks` y de su contraseña fuera del repositorio: si se pierde, el siguiente APK no se podrá instalar
+encima y habrá que desinstalar la app. Si faltan los secretos, la release se publica sin APK. Compilando en local sin
+`android/key.properties`, se firma con la clave de depuración.
+
 ## Estructura
 
 ```

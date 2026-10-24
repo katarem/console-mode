@@ -118,37 +118,73 @@ jobs:
     needs: version
     if: needs.version.outputs.mobile == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      apk: ${{ steps.signing.outputs.ok }}
     defaults:
       run:
         working-directory: mobile
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      # El APK se firma siempre con la misma clave (secretos del repositorio). Android solo instala una actualización
+      # encima si la firma coincide; sin la clave, la CI firmaría con una de depuración nueva en cada ejecución y el
+      # móvil diría «package conflicts with an existing package». Sin los secretos no se publica el APK.
+      - name: Clave de firma
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -z "$KEYSTORE_BASE64" || -z "$KEYSTORE_PASSWORD" || -z "$KEY_ALIAS" ]]; then
+            echo "::warning::Faltan los secretos ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD o ANDROID_KEY_ALIAS: esta release no lleva APK."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+          {
+            echo "storeFile=upload-keystore.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+          } > android/key.properties
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - if: steps.signing.outputs.ok == 'true'
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
 
-      - uses: subosito/flutter-action@v2
+      - if: steps.signing.outputs.ok == 'true'
+        uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.35.6'
           channel: stable
           cache: true
 
-      - run: flutter pub get
+      - if: steps.signing.outputs.ok == 'true'
+        run: flutter pub get
       # La versión se incrusta en la app para que pueda buscar actualizaciones.
       - name: Compilar APK
+        if: steps.signing.outputs.ok == 'true'
         run: |
           version=$(sed -nE 's/^version: *([^+]+).*/\1/p' pubspec.yaml)
           flutter build apk --release --dart-define=APP_VERSION=$version
 
-      - name: Renombrar APK
+      - name: Renombrar APK y mostrar el certificado de la firma
+        if: steps.signing.outputs.ok == 'true'
         run: |
           version=$(sed -nE 's/^version: *([^+]+).*/\1/p' pubspec.yaml)
-          mv build/app/outputs/flutter-apk/app-release.apk "build/app/outputs/flutter-apk/ConsoleMode-$version.apk"
+          apk="build/app/outputs/flutter-apk/ConsoleMode-$version.apk"
+          mv build/app/outputs/flutter-apk/app-release.apk "$apk"
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n1)/apksigner
+          "$apksigner" verify --print-certs "$apk" | grep -i 'SHA-256'
 
-      - uses: actions/upload-artifact@v4
+      - if: steps.signing.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
         with:
           name: ConsoleMode-android
           path: mobile/build/app/outputs/flutter-apk/ConsoleMode-*.apk
@@ -160,7 +196,7 @@ jobs:
     if: >
       always() && needs.version.outputs.tag != '' &&
       needs.windows.result != 'failure' && needs.android.result != 'failure' &&
-      (needs.windows.result == 'success' || needs.android.result == 'success')
+      (needs.windows.result == 'success' || needs.android.outputs.apk == 'true')
     needs: [version, windows, android]
     runs-on: ubuntu-latest
     steps:
