@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using ConsoleMode.Core;
+using ConsoleMode.Native;
 
 namespace ConsoleMode.Network;
 
@@ -19,8 +20,9 @@ public sealed class RemoteServer : IDisposable
     /// 2: añade get_devices / set_audio / set_display (cambios rápidos temporales).
     /// 3: auth_ok y pair_ok incluyen «wake» (MAC y broadcast para encender el PC con Wake-on-LAN).
     /// 4: devices incluye «mics» y «comms»; set_microphone / set_communications.
+    /// 5: power (suspender o apagar el PC).
     /// </summary>
-    public const int ProtocolVersion = 4;
+    public const int ProtocolVersion = 5;
     private const int MaxLineLength = 16 * 1024;
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan PairingTimeout = TimeSpan.FromSeconds(90);
@@ -51,6 +53,9 @@ public sealed class RemoteServer : IDisposable
 
     /// <summary>Se ha añadido un dispositivo de confianza o ha cambiado su última conexión.</summary>
     public event Action? DevicesChanged;
+
+    /// <summary>Un dispositivo de confianza ha pedido suspender («sleep») o apagar («shutdown») el PC.</summary>
+    public event Action<string, string>? RemotePowerRequested;
 
     /// <summary>Un dispositivo de confianza ha pedido un cambio de modo (para avisar en la bandeja).</summary>
     public event Action<string, AppMode>? RemoteModeRequested;
@@ -265,6 +270,39 @@ public sealed class RemoteServer : IDisposable
                 Log.Info($"{session.Device.Name} solicita modo {mode.Value.ToDisplayName()}");
                 RemoteModeRequested?.Invoke(session.Device.Name, mode.Value);
                 _ = _switcher.SwitchAsync(mode.Value);
+                break;
+
+            case "power":
+                var action = (string?)msg["action"];
+                if (action is not ("sleep" or "shutdown"))
+                {
+                    await session.SendAsync(Error("Acción desconocida"));
+                    break;
+                }
+                Log.Info($"{session.Device.Name} pide {(action == "sleep" ? "suspender" : "apagar")} el PC");
+                RemotePowerRequested?.Invoke(session.Device.Name, action);
+                await session.SendAsync(new JsonObject { ["type"] = "power_ok", ["action"] = action });
+                // Un momento para que la respuesta llegue al móvil antes de que se corte la red.
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1.5));
+                    try
+                    {
+                        if (action == "sleep")
+                        {
+                            PowerControl.Sleep();
+                        }
+                        else
+                        {
+                            PowerControl.Shutdown();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error("No se pudo suspender o apagar el PC", ex);
+                        Broadcast(Error(ex.Message));
+                    }
+                });
                 break;
 
             default:

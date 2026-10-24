@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -78,57 +77,11 @@ public static class SteamBigPicture
     }
 
     /// <summary>
-    /// Espera a que aparezca la ventana de Big Picture y, si no está en el monitor indicado,
-    /// la mueve y la ajusta a ese monitor. Big Picture se abre en la pantalla principal, así que
-    /// normalmente ya estará bien colocada; esto cubre los casos en los que Steam recuerda otra pantalla.
+    /// Espera a que aparezca la ventana de Big Picture y, si no está en el monitor indicado, la mueve a ese monitor.
+    /// Big Picture se abre en la pantalla principal; esto cubre los casos en los que Steam recuerda otra pantalla.
     /// </summary>
-    public static async Task EnsureOnDisplayAsync(string displayId, TimeSpan timeout, CancellationToken ct = default)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        IntPtr hwnd;
-        while ((hwnd = FindWindow()) == IntPtr.Zero)
-        {
-            if (DateTime.UtcNow > deadline)
-            {
-                Log.Info("No se encontró la ventana de Big Picture para recolocarla");
-                return;
-            }
-            await Task.Delay(500, ct);
-        }
-
-        // Steam a veces se recoloca justo después de crear la ventana: comprobamos unas cuantas veces.
-        for (var attempt = 0; attempt < 6; attempt++)
-        {
-            await Task.Delay(attempt == 0 ? 1500 : 1000, ct);
-            hwnd = FindWindow();
-            var display = DisplayManager.Find(displayId);
-            if (hwnd == IntPtr.Zero || display == null)
-            {
-                return;
-            }
-
-            if (GetWindowRect(hwnd, out var rect))
-            {
-                var current = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
-                var center = new Point(current.Left + current.Width / 2, current.Top + current.Height / 2);
-                if (display.Bounds.Contains(center) && current.Width >= display.Bounds.Width - 2)
-                {
-                    break;
-                }
-            }
-
-            Log.Info($"Moviendo Big Picture a {display.FriendlyName}");
-            ShowWindow(hwnd, SW_RESTORE);
-            SetWindowPos(hwnd, IntPtr.Zero, display.Bounds.X, display.Bounds.Y, display.Bounds.Width, display.Bounds.Height,
-                SWP_NOZORDER | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
-        }
-
-        hwnd = FindWindow();
-        if (hwnd != IntPtr.Zero)
-        {
-            SetForegroundWindow(hwnd);
-        }
-    }
+    public static Task EnsureOnDisplayAsync(string displayId, TimeSpan timeout, CancellationToken ct = default) =>
+        WindowPlacement.EnsureOnDisplayAsync(FindWindow, "Big Picture", displayId, timeout, ct);
 
     public static bool IsOpen => FindWindow() != IntPtr.Zero;
 
@@ -181,17 +134,6 @@ public static class SteamBigPicture
     private static readonly Regex BigPictureTitle = new(@"Big\p{Z}+Picture", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private const uint WM_CLOSE = 0x0010;
-    private const int SW_RESTORE = 9;
-    private const uint SWP_NOZORDER = 0x0004;
-    private const uint SWP_FRAMECHANGED = 0x0020;
-    private const uint SWP_SHOWWINDOW = 0x0040;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RECT
-    {
-        public int Left, Top, Right, Bottom;
-    }
-
     private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
 
     [DllImport("user32.dll")]
@@ -205,18 +147,6 @@ public static class SteamBigPicture
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int maxCount);
-
-    [DllImport("user32.dll")]
-    private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
-
-    [DllImport("user32.dll")]
-    private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
-
-    [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hwnd, int cmdShow);
-
-    [DllImport("user32.dll")]
-    private static extern bool SetForegroundWindow(IntPtr hwnd);
 
     [DllImport("user32.dll")]
     private static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);

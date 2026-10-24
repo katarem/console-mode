@@ -48,7 +48,16 @@ class _ControlScreenState extends State<ControlScreen> with WidgetsBindingObserv
         final c = _connection;
         final connected = c.status == ConnectionStatus.connected;
         return Scaffold(
-          appBar: AppBar(title: Text(c.pc.name)),
+          appBar: AppBar(
+            title: Text(c.pc.name),
+            actions: [
+              IconButton(
+                tooltip: 'Encendido y apagado',
+                icon: const Icon(Icons.tune),
+                onPressed: () => _showPowerSettings(context, c),
+              ),
+            ],
+          ),
           body: SafeArea(
             child: LayoutBuilder(
               builder: (context, constraints) => SingleChildScrollView(
@@ -59,6 +68,8 @@ class _ControlScreenState extends State<ControlScreen> with WidgetsBindingObserv
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       _StatusBanner(connection: c),
+                      const SizedBox(height: 24),
+                      _PowerButton(connection: c),
                       const SizedBox(height: 24),
                       ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 360),
@@ -134,21 +145,7 @@ class _StatusBanner extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ] else if (c.status == ConnectionStatus.offline) ...[
-          const SizedBox(height: 16),
-          if (c.pc.canWake) ...[
-            FilledButton.icon(
-              onPressed: () => c.wake(thenMode: PcMode.console),
-              icon: const Icon(Icons.sports_esports),
-              label: const Text('Encender en modo consola'),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: c.wake,
-              icon: const Icon(Icons.power_settings_new),
-              label: const Text('Solo encender'),
-            ),
-            const SizedBox(height: 8),
-          ],
+          const SizedBox(height: 8),
           TextButton.icon(
             onPressed: c.retryNow,
             icon: const Icon(Icons.refresh),
@@ -273,5 +270,145 @@ class _QuickSwitchCard extends StatelessWidget {
     if (id != null && !options.any((o) => o.id == id && o.current)) {
       onSelected(id);
     }
+  }
+}
+
+/// Ajustes de encendido y apagado de este PC: modo al encender y qué hace el botón de apagar.
+Future<void> _showPowerSettings(BuildContext context, PcConnection connection) => showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => ListenableBuilder(
+        listenable: connection,
+        builder: (context, _) {
+          final theme = Theme.of(context);
+          final pc = connection.pc;
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Encendido y apagado', style: theme.textTheme.titleLarge),
+                  const SizedBox(height: 20),
+                  Text('Al encender el PC, ponerlo en', style: theme.textTheme.titleSmall),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<WakeMode>(
+                      segments: const [
+                        ButtonSegment(value: WakeMode.console, icon: Icon(Icons.sports_esports), label: Text('Consola')),
+                        ButtonSegment(value: WakeMode.pc, icon: Icon(Icons.desktop_windows_outlined), label: Text('PC')),
+                        ButtonSegment(value: WakeMode.keep, label: Text('Sin cambiar')),
+                      ],
+                      selected: {pc.wakeMode},
+                      onSelectionChanged: (v) => connection.updatePowerSettings(wakeMode: v.first),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text('El botón de apagar', style: theme.textTheme.titleSmall),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<PowerOffAction>(
+                      segments: const [
+                        ButtonSegment(value: PowerOffAction.sleep, icon: Icon(Icons.bedtime_outlined), label: Text('Suspende')),
+                        ButtonSegment(value: PowerOffAction.shutdown, icon: Icon(Icons.power_settings_new), label: Text('Apaga')),
+                      ],
+                      selected: {pc.powerOff},
+                      onSelectionChanged: (v) => connection.updatePowerSettings(powerOff: v.first),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Suspender es más rápido y el PC se vuelve a encender desde aquí con más fiabilidad que desde apagado.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+/// Botón de encendido: enciende el PC si no responde (Wake-on-LAN) y lo suspende o apaga si está conectado.
+class _PowerButton extends StatelessWidget {
+  const _PowerButton({required this.connection});
+
+  final PcConnection connection;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = connection;
+    final theme = Theme.of(context);
+    final connected = c.status == ConnectionStatus.connected;
+
+    final String label;
+    final Color color;
+    final VoidCallback? onPressed;
+    if (c.waking) {
+      (label, color, onPressed) = ('Encendiendo…', theme.colorScheme.tertiary, null);
+    } else if (c.poweringOff) {
+      (label, color, onPressed) = ('${c.pc.powerOff.progress}…', theme.colorScheme.outline, null);
+    } else if (connected) {
+      if (!c.supportsPower) return const SizedBox.shrink();
+      (label, color, onPressed) = (c.pc.powerOff.label, Colors.redAccent, c.busy ? null : () => _confirmPowerOff(context));
+    } else if (c.status == ConnectionStatus.offline && c.pc.canWake) {
+      final mode = c.pc.wakeMode.mode;
+      (label, color, onPressed) = (
+        switch (mode) {
+          PcMode.console => 'Encender en modo consola',
+          PcMode.pc => 'Encender en modo PC',
+          null => 'Encender',
+        },
+        Colors.green,
+        c.wake,
+      );
+    } else {
+      return const SizedBox.shrink();
+    }
+
+    final enabled = onPressed != null;
+    return Column(
+      children: [
+        SizedBox(
+          width: 88,
+          height: 88,
+          child: FilledButton(
+            onPressed: onPressed,
+            style: FilledButton.styleFrom(
+              shape: const CircleBorder(),
+              padding: EdgeInsets.zero,
+              backgroundColor: color,
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: color.withValues(alpha: 0.35),
+              disabledForegroundColor: Colors.white70,
+            ),
+            child: const Icon(Icons.power_settings_new, size: 44),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(label, style: theme.textTheme.titleSmall?.copyWith(color: enabled ? null : theme.disabledColor)),
+      ],
+    );
+  }
+
+  Future<void> _confirmPowerOff(BuildContext context) async {
+    final action = connection.pc.powerOff;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('¿${action.label} «${connection.pc.name}»?'),
+        content: Text(action == PowerOffAction.sleep
+            ? 'El PC se suspenderá. Puedes volver a encenderlo desde aquí.'
+            : 'El PC se apagará del todo. Para encenderlo desde aquí hace falta Wake-on-LAN desde apagado.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(action.label)),
+        ],
+      ),
+    );
+    if (ok == true) connection.powerOff();
   }
 }

@@ -68,18 +68,20 @@ Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{group}\Desinstalar {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
-[Registry]
-; Mismo valor que usa la opción «Iniciar con Windows» de la app, así que se puede cambiar luego desde Ajustes.
-Root: HKCU; Subkey: "{#RunKey}"; ValueType: string; ValueName: "ConsoleMode"; ValueData: """{app}\{#AppExe}"" --background"; Tasks: startup
 
 [Run]
 ; Regla del firewall para el puerto TCP de control y el descubrimiento UDP (se borra antes para no duplicarla).
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#FirewallRule}"""; Flags: runhidden; Tasks: firewall
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""{#FirewallRule}"" dir=in action=allow program=""{app}\{#AppExe}"" enable=yes profile=private"; Flags: runhidden; Tasks: firewall
+; Inicio con Windows: la app crea la tarea programada «Console Mode (usuario)» como el usuario que instala. Es lo mismo que
+; la opción de Ajustes, así que se puede cambiar luego desde la app.
+Filename: "{app}\{#AppExe}"; Parameters: "--enable-startup"; Flags: runhidden waituntilterminated runasoriginaluser; Tasks: startup
 ; Sin «skipifsilent»: al actualizar desde la app (instalador en modo /SILENT) también se vuelve a abrir.
 Filename: "{app}\{#AppExe}"; Description: "Abrir {#AppName}"; Flags: nowait postinstall runasoriginaluser
 
 [UninstallRun]
+; Tareas de inicio con Windows de todos los usuarios («Console Mode (usuario)»).
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -Command ""Get-ScheduledTask -TaskName 'Console Mode (*' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveStartupTasks"
 ; Deshace los ajustes de Windows del encendido a distancia (Wake-on-LAN, mando, inicio rápido...), si se aplicaron.
 Filename: "{app}\{#AppExe}"; Parameters: "--wake-setup revert"; Flags: runhidden waituntilterminated; RunOnceId: "RevertWakeSetup"
 Filename: "{app}\{#AppExe}"; Parameters: "--exit"; Flags: runhidden waituntilterminated; RunOnceId: "CloseApp"
@@ -109,7 +111,7 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    // El inicio automático también se puede activar desde la app: lo quitamos siempre.
+    // Inicio automático de versiones anteriores (HKCU\...\Run): lo quitamos siempre.
     RegDeleteValue(HKCU, '{#RunKey}', 'ConsoleMode');
     // La configuración (%APPDATA%\ConsoleMode) se conserva por si se vuelve a instalar.
   end;

@@ -434,9 +434,11 @@ public sealed class OverlayForm : Form
         if (!state.Busy)
         {
             _rows.Add(state.Mode == AppMode.Console
-                ? new Row(RowKind.SwitchMode, "mode", "Volver a modo PC", "Cierra Big Picture y aplica el modo PC", GlyphPc, PcColor,
+                ? new Row(RowKind.SwitchMode, "mode", "Volver a modo PC",
+                    ConsoleFrontend.LaunchesOnConsoleMode ? $"Cierra {ConsoleFrontend.Name} y aplica el modo PC" : "Aplica el modo PC", GlyphPc, PcColor,
                     Target: AppMode.Pc)
-                : new Row(RowKind.SwitchMode, "mode", "Ir a modo consola", "Abre Big Picture en la pantalla de la consola", GlyphGame,
+                : new Row(RowKind.SwitchMode, "mode", "Ir a modo consola",
+                    ConsoleFrontend.LaunchesOnConsoleMode ? $"Abre {ConsoleFrontend.Name} en la pantalla de la consola" : "Aplica el modo consola", GlyphGame,
                     ConsoleColor, Target: AppMode.Console));
         }
         if (_outVolume != null || _inVolume != null)
@@ -1310,8 +1312,9 @@ public sealed class OverlayForm : Form
     }
 
     /// <summary>
-    /// Solo se recupera el foco si se lo ha quitado Steam o la ventana que estaba delante al abrir (Big Picture o el
-    /// juego). Si el usuario cambia a otra aplicación (con el ratón o Alt+Tab), el overlay se aparta.
+    /// Solo se recupera el foco si se lo ha quitado Steam, el frontal (Big Picture, Playnite...) o la ventana que estaba
+    /// delante al abrir (el frontal o el juego). Si el usuario cambia a otra aplicación (con el ratón o Alt+Tab), el
+    /// overlay se aparta.
     /// </summary>
     private bool ShouldReclaimFocusFrom(IntPtr hwnd)
     {
@@ -1322,7 +1325,8 @@ public sealed class OverlayForm : Form
         var process = WindowFocus.ProcessNameOf(hwnd);
         return process.Length == 0 ||
                string.Equals(process, _previousProcess, StringComparison.OrdinalIgnoreCase) ||
-               SteamProcesses.Contains(process);
+               SteamProcesses.Contains(process) ||
+               ConsoleFrontend.ProcessNames.Contains(process, StringComparer.OrdinalIgnoreCase);
     }
 
     private static readonly HashSet<string> SteamProcesses = new(StringComparer.OrdinalIgnoreCase)
