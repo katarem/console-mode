@@ -202,7 +202,8 @@ public static class ConsoleFrontend
         EnumWindows((hwnd, _) =>
         {
             GetWindowThreadProcessId(hwnd, out var pid);
-            if (pids.Contains(pid) && IsWindowVisible(hwnd) && GetWindow(hwnd, GW_OWNER) == IntPtr.Zero && GetWindowTextLength(hwnd) > 0)
+            if (pids.Contains(pid) && IsWindowVisible(hwnd) && GetWindow(hwnd, GW_OWNER) == IntPtr.Zero &&
+                (GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) == 0)
             {
                 windows.Add(hwnd);
             }
@@ -211,9 +212,22 @@ public static class ConsoleFrontend
         return windows;
     }
 
-    /// <summary>La ventana principal del programa: la más grande de las suyas.</summary>
+    /// <summary>
+    /// La ventana principal del programa: la más grande de las que ocupan al menos media pantalla. Así no se toma por la
+    /// principal la ventana de carga que muchos frontales (Playnite, por ejemplo) enseñan antes de la pantalla completa.
+    /// </summary>
     private static IntPtr FindProgramWindow(string exe) => ProgramWindows(exe)
-        .Select(hwnd => (hwnd, Area: GetWindowRect(hwnd, out var r) ? (long)(r.Right - r.Left) * (r.Bottom - r.Top) : 0))
+        .Select(hwnd =>
+        {
+            if (!GetWindowRect(hwnd, out var r))
+            {
+                return (hwnd, Area: 0L, Share: 0.0);
+            }
+            var area = (long)(r.Right - r.Left) * (r.Bottom - r.Top);
+            var screen = Screen.FromHandle(hwnd).Bounds;
+            return (hwnd, Area: area, Share: area / (double)Math.Max(1L, (long)screen.Width * screen.Height));
+        })
+        .Where(w => w.Share >= 0.5)
         .OrderByDescending(w => w.Area)
         .Select(w => w.hwnd)
         .FirstOrDefault();
@@ -233,8 +247,11 @@ public static class ConsoleFrontend
     [DllImport("user32.dll")]
     private static extern IntPtr GetWindow(IntPtr hwnd, uint cmd);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int GetWindowTextLength(IntPtr hwnd);
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_TOOLWINDOW = 0x00000080;
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hwnd, int index);
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
@@ -256,56 +273,109 @@ public static class ConsoleFrontend
 public static class WindowPlacement
 {
     /// <summary>
-    /// Espera a que aparezca la ventana y, si no está en el monitor indicado, la mueve y la ajusta a ese monitor. El
-    /// frontal se abre en la pantalla principal, así que normalmente ya estará bien colocado; esto cubre los casos en los
-    /// que el programa recuerda otra pantalla.
+    /// Vigila la ventana del frontal hasta que esté en la pantalla indicada, ocupándola entera, durante 3 comprobaciones
+    /// seguidas (o hasta <paramref name="timeout"/>). Si no está ahí, la lleva. El frontal se abre en la pantalla
+    /// principal, así que normalmente ya estará bien; esto cubre los programas que recuerdan otra pantalla, los que
+    /// enseñan primero una ventana de carga y los que se abren maximizados en un monitor concreto (Playnite).
     /// </summary>
     public static async Task EnsureOnDisplayAsync(Func<IntPtr> findWindow, string name, string displayId, TimeSpan timeout,
         CancellationToken ct = default)
     {
+        const int MaxMoves = 5;
         var deadline = DateTime.UtcNow + timeout;
-        IntPtr hwnd;
-        while ((hwnd = findWindow()) == IntPtr.Zero)
-        {
-            if (DateTime.UtcNow > deadline)
-            {
-                Log.Info($"No se encontró la ventana de {name} para recolocarla");
-                return;
-            }
-            await Task.Delay(500, ct);
-        }
+        var stable = 0;
+        var moves = 0;
+        var seen = false;
+        var lastWindow = IntPtr.Zero;
 
-        // Algunos programas se recolocan justo después de crear la ventana: se comprueba unas cuantas veces.
-        for (var attempt = 0; attempt < 6; attempt++)
+        while (DateTime.UtcNow < deadline)
         {
-            await Task.Delay(attempt == 0 ? 1500 : 1000, ct);
-            hwnd = findWindow();
+            var hwnd = findWindow();
+            if (hwnd == IntPtr.Zero)
+            {
+                await Task.Delay(500, ct);
+                continue;
+            }
+            if (!seen)
+            {
+                seen = true;
+                // Algunos programas se recolocan justo después de crear la ventana: se les deja un momento.
+                await Task.Delay(1500, ct);
+                continue;
+            }
+
             var display = DisplayManager.Find(displayId);
-            if (hwnd == IntPtr.Zero || display == null)
+            if (display == null)
             {
                 return;
             }
 
-            if (GetWindowRect(hwnd, out var rect))
+            if (hwnd != lastWindow)
             {
-                var current = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
-                var center = new Point(current.Left + current.Width / 2, current.Top + current.Height / 2);
-                if (display.Bounds.Contains(center) && current.Width >= display.Bounds.Width - 2)
+                stable = 0; // ventana nueva (p. ej. tras la de carga): hay que comprobarla otra vez
+                lastWindow = hwnd;
+            }
+
+            if (IsOnDisplay(hwnd, display.Bounds))
+            {
+                if (++stable >= 3)
                 {
                     break;
                 }
             }
+            else if (moves < MaxMoves)
+            {
+                stable = 0;
+                moves++;
+                Log.Info($"Moviendo {name} a {display.FriendlyName}");
+                MoveToDisplay(hwnd, display.Bounds);
+            }
+            else
+            {
+                Log.Info($"{name} vuelve a otra pantalla después de moverlo {MaxMoves} veces: elige la pantalla de la " +
+                         "consola en los ajustes del propio programa");
+                return;
+            }
 
-            Log.Info($"Moviendo {name} a {display.FriendlyName}");
-            ShowWindow(hwnd, SW_RESTORE);
-            SetWindowPos(hwnd, IntPtr.Zero, display.Bounds.X, display.Bounds.Y, display.Bounds.Width, display.Bounds.Height,
-                SWP_NOZORDER | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
+            await Task.Delay(1000, ct);
         }
 
-        hwnd = findWindow();
-        if (hwnd != IntPtr.Zero)
+        if (!seen)
         {
-            SetForegroundWindow(hwnd);
+            Log.Info($"No se encontró la ventana de {name} para recolocarla");
+            return;
+        }
+
+        var window = findWindow();
+        if (window != IntPtr.Zero)
+        {
+            SetForegroundWindow(window);
+        }
+    }
+
+    private static bool IsOnDisplay(IntPtr hwnd, Rectangle bounds)
+    {
+        if (!GetWindowRect(hwnd, out var rect))
+        {
+            return false;
+        }
+        var current = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+        var center = new Point(current.Left + current.Width / 2, current.Top + current.Height / 2);
+        return bounds.Contains(center) && current.Width >= bounds.Width - 2;
+    }
+
+    /// <summary>
+    /// Lleva la ventana al monitor y la ajusta a él. Una ventana maximizada se restaura, se mueve y se vuelve a
+    /// maximizar, para que Windows la maximice en el monitor nuevo (moverla maximizada no funciona bien).
+    /// </summary>
+    private static void MoveToDisplay(IntPtr hwnd, Rectangle bounds)
+    {
+        var maximized = IsZoomed(hwnd);
+        ShowWindow(hwnd, SW_RESTORE);
+        SetWindowPos(hwnd, IntPtr.Zero, bounds.X, bounds.Y, bounds.Width, bounds.Height, SWP_NOZORDER | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
+        if (maximized)
+        {
+            ShowWindow(hwnd, SW_MAXIMIZE);
         }
     }
 
@@ -316,6 +386,7 @@ public static class WindowPlacement
     }
 
     private const int SW_RESTORE = 9;
+    private const int SW_MAXIMIZE = 3;
     private const uint SWP_NOZORDER = 0x0004;
     private const uint SWP_FRAMECHANGED = 0x0020;
     private const uint SWP_SHOWWINDOW = 0x0040;
@@ -328,6 +399,9 @@ public static class WindowPlacement
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hwnd, int cmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsZoomed(IntPtr hwnd);
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hwnd);
