@@ -18,8 +18,9 @@ public sealed class RemoteServer : IDisposable
     /// <summary>
     /// 2: añade get_devices / set_audio / set_display (cambios rápidos temporales).
     /// 3: auth_ok y pair_ok incluyen «wake» (MAC y broadcast para encender el PC con Wake-on-LAN).
+    /// 4: devices incluye «mics» y «comms»; set_microphone / set_communications.
     /// </summary>
-    public const int ProtocolVersion = 3;
+    public const int ProtocolVersion = 4;
     private const int MaxLineLength = 16 * 1024;
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan PairingTimeout = TimeSpan.FromSeconds(90);
@@ -228,6 +229,8 @@ public sealed class RemoteServer : IDisposable
 
             case "set_audio":
             case "set_display":
+            case "set_microphone":
+            case "set_communications":
                 var id = (string?)msg["id"];
                 if (string.IsNullOrEmpty(id))
                 {
@@ -237,14 +240,14 @@ public sealed class RemoteServer : IDisposable
                 try
                 {
                     var origin = $"Móvil ({session.Device.Name})";
-                    if (type == "set_audio")
+                    Action<string, string> apply = type switch
                     {
-                        await Task.Run(() => QuickSwitch.SetAudio(id, origin));
-                    }
-                    else
-                    {
-                        await Task.Run(() => QuickSwitch.SetDisplay(id, origin));
-                    }
+                        "set_audio" => QuickSwitch.SetAudio,
+                        "set_microphone" => QuickSwitch.SetMicrophone,
+                        "set_communications" => QuickSwitch.SetCommunications,
+                        _ => QuickSwitch.SetDisplay,
+                    };
+                    await Task.Run(() => apply(id, origin));
                 }
                 catch (Exception ex)
                 {
@@ -458,6 +461,8 @@ public sealed class RemoteServer : IDisposable
         {
             ["type"] = "devices",
             ["audio"] = ToJson(QuickSwitch.AudioOptions()),
+            ["mics"] = ToJson(QuickSwitch.MicrophoneOptions()),
+            ["comms"] = ToJson(QuickSwitch.CommunicationsOptions()),
             ["displays"] = ToJson(QuickSwitch.DisplayOptions()),
         };
     }

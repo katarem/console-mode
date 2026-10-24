@@ -28,6 +28,10 @@ class PcConnection extends ChangeNotifier {
   List<QuickOption> audio = const [];
   List<QuickOption> displays = const [];
 
+  /// Micrófonos y salidas de comunicaciones (Discord, Teams...). Vacías si el PC usa un protocolo anterior al 4.
+  List<QuickOption> microphones = const [];
+  List<QuickOption> communications = const [];
+
   /// Se ha enviado la señal de encendido y se espera a que el PC arranque.
   bool waking = false;
 
@@ -125,6 +129,12 @@ class PcConnection extends ChangeNotifier {
 
   /// Cambia la pantalla principal del PC sin tocar la configuración de sus modos.
   void setDisplay(String id) => _sendQuick('set_display', id);
+
+  /// Cambia el micrófono del PC (predeterminado y de comunicaciones) sin tocar sus modos.
+  void setMicrophone(String id) => _sendQuick('set_microphone', id);
+
+  /// Cambia la salida de comunicaciones del PC (la que usan Discord, Teams...) sin tocar sus modos.
+  void setCommunications(String id) => _sendQuick('set_communications', id);
 
   void _sendQuick(String type, String id) {
     final conn = _conn;
@@ -228,6 +238,8 @@ class PcConnection extends ChangeNotifier {
         case 'devices':
           audio = QuickOption.listFromJson(msg['audio']);
           displays = QuickOption.listFromJson(msg['displays']);
+          microphones = QuickOption.listFromJson(msg['mics']);
+          communications = QuickOption.listFromJson(msg['comms']);
           _notify();
         case 'status':
           mode = PcMode.fromWire(msg['mode'] as String?);

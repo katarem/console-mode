@@ -200,6 +200,29 @@ class _QuickSwitchCard extends StatelessWidget {
             enabled: c.audio.isNotEmpty && !c.busy,
             onTap: () => _pick(context, 'Salida de audio', c.audio, c.setAudio),
           ),
+          if (c.microphones.isNotEmpty)
+            ListTile(
+              leading: const Icon(Icons.mic_none_outlined),
+              title: const Text('Micrófono'),
+              subtitle: Text(currentName(c.microphones), maxLines: 1, overflow: TextOverflow.ellipsis),
+              trailing: const Icon(Icons.chevron_right),
+              enabled: !c.busy,
+              onTap: () => _pick(context, 'Micrófono', c.microphones, c.setMicrophone),
+            ),
+          if (c.communications.isNotEmpty)
+            ListTile(
+              leading: const Icon(Icons.headset_mic_outlined),
+              title: const Text('Comunicaciones'),
+              subtitle: Text(currentName(c.communications), maxLines: 1, overflow: TextOverflow.ellipsis),
+              trailing: const Icon(Icons.chevron_right),
+              enabled: !c.busy,
+              onTap: () => _pick(
+                context,
+                'Comunicaciones (Discord, Teams…)',
+                c.communications,
+                c.setCommunications,
+              ),
+            ),
           ListTile(
             leading: const Icon(Icons.monitor_outlined),
             title: const Text('Pantalla principal'),

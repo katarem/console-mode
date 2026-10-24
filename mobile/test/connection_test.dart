@@ -24,6 +24,8 @@ class FakePc {
   final tokens = <String, String>{};
   String mode = 'pc';
   String audio = 'tv';
+  String mic = 'webcam';
+  String comms = 'tv';
   late ServerSocket server;
 
   int get port => server.port;
@@ -36,12 +38,20 @@ class FakePc {
   void _handle(Socket s) {
     const nonce = 'n0nce';
     void send(Map<String, dynamic> m) => s.write('${jsonEncode(m)}\n');
-    send({'type': 'hello', 'version': 3, 'pcId': pcId, 'pcName': 'FAKE-PC', 'nonce': nonce});
+    send({'type': 'hello', 'version': 4, 'pcId': pcId, 'pcName': 'FAKE-PC', 'nonce': nonce});
     void sendDevices() => send({
           'type': 'devices',
           'audio': [
             {'id': 'tv', 'name': 'SAMSUNG', 'current': audio == 'tv'},
             {'id': 'hp', 'name': 'Headphones', 'current': audio == 'hp'},
+          ],
+          'mics': [
+            {'id': 'webcam', 'name': 'Webcam', 'current': mic == 'webcam'},
+            {'id': 'headset', 'name': 'Arctis 7', 'current': mic == 'headset'},
+          ],
+          'comms': [
+            {'id': 'tv', 'name': 'SAMSUNG', 'current': comms == 'tv'},
+            {'id': 'hp', 'name': 'Headphones', 'current': comms == 'hp'},
           ],
           'displays': [
             {'id': 'd1', 'name': 'SAMSUNG', 'current': true},
@@ -75,6 +85,14 @@ class FakePc {
         case 'set_audio':
           if (device == null) return;
           audio = msg['id'] as String;
+          sendDevices();
+        case 'set_microphone':
+          if (device == null) return;
+          mic = msg['id'] as String;
+          sendDevices();
+        case 'set_communications':
+          if (device == null) return;
+          comms = msg['id'] as String;
           sendDevices();
         case 'set_mode':
           if (device == null) return;
@@ -130,6 +148,15 @@ void main() {
     expect(conn.audio.firstWhere((o) => o.current).id, 'tv');
     conn.setAudio('hp');
     await waitFor(() => conn.audio.firstWhere((o) => o.current).id == 'hp');
+
+    // Micrófono y comunicaciones (protocolo 4)
+    expect(conn.microphones.firstWhere((o) => o.current).id, 'webcam');
+    conn.setMicrophone('headset');
+    await waitFor(() => conn.microphones.firstWhere((o) => o.current).id == 'headset');
+    conn.setCommunications('hp');
+    await waitFor(() => conn.communications.firstWhere((o) => o.current).id == 'hp');
+    expect(pc.audio, 'hp');
+    expect(pc.comms, 'hp');
 
     conn.dispose();
     await pc.stop();

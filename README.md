@@ -39,8 +39,8 @@ Tiene dos partes:
   abajo).
 - **Encender el PC desde el móvil** con Wake-on-LAN, y entrar directamente en modo consola. Console Mode prepara
   Windows por ti (y lo deja como estaba si lo desactivas). Ver [Encender el PC a distancia](#encender-el-pc-a-distancia).
-- **Cambio rápido desde el móvil**: debajo del interruptor puedes elegir la salida de audio y la pantalla principal
-  del PC al momento, sin cambiar la configuración de tus modos.
+- **Cambio rápido desde el móvil**: debajo del interruptor puedes elegir la salida de audio, el micrófono, la salida de
+  comunicaciones y la pantalla principal del PC al momento, sin cambiar la configuración de tus modos.
 - **Actualizaciones desde la app**, tanto en el PC como en Android.
 - Si el PC cambia de IP, el móvil lo vuelve a encontrar solo.
 - **Instalador** o **versión portable**, a tu elección.
