@@ -132,7 +132,10 @@ jobs:
       - run: flutter analyze
       - run: flutter test
       # La versión se incrusta en la app para que pueda buscar actualizaciones.
-      - run: flutter build apk --release --dart-define=APP_VERSION=$(sed -nE 's/^version: *([^+]+).*/\1/p' pubspec.yaml)
+      - name: Compilar APK
+        run: |
+          version=$(sed -nE 's/^version: *([^+]+).*/\1/p' pubspec.yaml)
+          flutter build apk --release --dart-define=APP_VERSION=$version
 
       - name: Renombrar APK
         run: |
