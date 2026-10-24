@@ -1,5 +1,6 @@
 import 'package:console_mode/services/models.dart';
 import 'package:console_mode/services/protocol.dart';
+import 'package:console_mode/services/wake_on_lan.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -26,5 +27,31 @@ void main() {
       LineConnection.proof('token-123', 'nonce-abc'),
       '2059d87586c6ef90d550b753f65bd775597a1b10525eb81090d7a5aaef0056bf',
     );
+  });
+
+  group('WakeOnLan.magicPacket', () {
+    test('6 bytes 0xFF y la MAC 16 veces', () {
+      final packet = WakeOnLan.magicPacket('AA:BB:CC:DD:EE:0F');
+      expect(packet.length, 102);
+      expect(packet.sublist(0, 6), List.filled(6, 0xFF));
+      for (var i = 0; i < 16; i++) {
+        expect(packet.sublist(6 + i * 6, 12 + i * 6), [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x0F]);
+      }
+    });
+
+    test('acepta guiones y rechaza MAC incorrectas', () {
+      expect(WakeOnLan.magicPacket('aa-bb-cc-dd-ee-ff').sublist(6, 12), [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+      expect(() => WakeOnLan.magicPacket('AA:BB:CC'), throwsFormatException);
+    });
+  });
+
+  test('WakeTarget ignora entradas incompletas', () {
+    final list = WakeTarget.listFromJson([
+      {'mac': 'AA:BB:CC:DD:EE:FF', 'broadcast': '192.168.1.255'},
+      {'mac': 'AA:BB:CC:DD:EE:FF'},
+      'x',
+    ]);
+    expect(list, [const WakeTarget(mac: 'AA:BB:CC:DD:EE:FF', broadcast: '192.168.1.255')]);
+    expect(WakeTarget.listFromJson(null), isEmpty);
   });
 }

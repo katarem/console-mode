@@ -80,6 +80,8 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""{
 Filename: "{app}\{#AppExe}"; Description: "Abrir {#AppName}"; Flags: nowait postinstall runasoriginaluser
 
 [UninstallRun]
+; Deshace los ajustes de Windows del encendido a distancia (Wake-on-LAN, mando, inicio rápido...), si se aplicaron.
+Filename: "{app}\{#AppExe}"; Parameters: "--wake-setup revert"; Flags: runhidden waituntilterminated; RunOnceId: "RevertWakeSetup"
 Filename: "{app}\{#AppExe}"; Parameters: "--exit"; Flags: runhidden waituntilterminated; RunOnceId: "CloseApp"
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#AppExe}"; Flags: runhidden waituntilterminated; RunOnceId: "KillApp"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#FirewallRule}"""; Flags: runhidden; RunOnceId: "RemoveFirewallRule"

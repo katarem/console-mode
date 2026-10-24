@@ -11,8 +11,14 @@ internal static class Program
     public const string ExitArg = "--exit";
 
     [STAThread]
-    private static void Main(string[] args)
+    private static int Main(string[] args)
     {
+        // --wake-setup: proceso elevado que prepara (o deshace) el encendido a distancia. No abre ventanas.
+        if (HasArg(args, WakeSetup.Arg))
+        {
+            return WakeSetup.RunFromCommandLine(args);
+        }
+
         // --exit: cierra la instancia en marcha (lo usa el instalador antes de actualizar o desinstalar).
         var exitRequested = HasArg(args, ExitArg);
 
@@ -41,12 +47,12 @@ internal static class Program
             {
                 WaitForOtherInstanceToExit(mutex);
             }
-            return;
+            return 0;
         }
 
         if (exitRequested)
         {
-            return; // No había nada que cerrar.
+            return 0; // No había nada que cerrar.
         }
 
         ApplicationConfiguration.Initialize();
@@ -59,6 +65,7 @@ internal static class Program
             Application.Run(context);
         }
         mutex.ReleaseMutex();
+        return 0;
     }
 
     private static bool HasArg(string[] args, string name) =>

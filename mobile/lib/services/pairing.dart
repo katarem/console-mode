@@ -54,6 +54,7 @@ class Pairing {
               hosts: hosts,
               port: target.port,
               token: msg['token'] as String,
+              wake: WakeTarget.listFromJson(msg['wake']),
             );
             await storage.upsertPc(pc);
             return pc;

@@ -84,6 +84,19 @@ PC    → {"type":"devices",
 El PC envía `devices` a todos los móviles conectados cuando cambia el audio o la pantalla (desde un móvil, desde el
 overlay del mando o por un cambio de modo).
 
+### Encendido a distancia (protocolo 3)
+
+`auth_ok` y `pair_ok` incluyen las tarjetas de red físicas del PC que están conectadas, primero las de cable:
+
+```json
+{"type":"auth_ok","pcName":"MI-PC","wake":[{"mac":"AA:BB:CC:DD:EE:FF","broadcast":"192.168.1.255"}]}
+```
+
+El móvil las guarda. Para encender el PC envía el paquete mágico de Wake-on-LAN (6 bytes `0xFF` seguidos de la MAC
+repetida 16 veces, 102 bytes) por UDP a los puertos 9 y 7. Lo envía a la dirección `broadcast` de cada tarjeta, a
+255.255.255.255 y al broadcast de su propia red, tres veces seguidas y cada 15 s mientras espera. Después se reconecta
+como siempre, cada 3 s, hasta que el PC responde o pasan 3 minutos.
+
 El PC envía `status` a todos los móviles conectados cada vez que cambia el modo, venga el cambio de un móvil,
 de la ventana del PC o del icono de la bandeja. Las conexiones sin actividad durante 60 s se cierran (el móvil
 envía `ping` cada 15 s).

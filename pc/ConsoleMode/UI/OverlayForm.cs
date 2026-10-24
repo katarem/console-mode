@@ -29,7 +29,7 @@ public sealed class OverlayForm : Form
 
     private enum ItemKind
     {
-        SwitchToPc,
+        SwitchMode,
         Audio,
         Display,
     }
@@ -264,9 +264,11 @@ public sealed class OverlayForm : Form
 
         _items.Clear();
         var state = _switcher.State;
-        if (state.Mode == AppMode.Console && !state.Busy)
+        if (!state.Busy)
         {
-            _items.Add(new Item(ItemKind.SwitchToPc, "pc", "Volver a modo PC", false));
+            _items.Add(state.Mode == AppMode.Console
+                ? new Item(ItemKind.SwitchMode, "pc", "Volver a modo PC", false)
+                : new Item(ItemKind.SwitchMode, "console", "Ir a modo consola", false));
         }
         _items.AddRange(QuickSwitch.AudioOptions().Select(a => new Item(ItemKind.Audio, a.Id, a.Name, a.IsCurrent)));
         _items.AddRange(QuickSwitch.DisplayOptions().Select(d => new Item(ItemKind.Display, d.Id, d.Name, d.IsCurrent)));
@@ -274,11 +276,11 @@ public sealed class OverlayForm : Form
         var index = _items.FindIndex(i => (i.Kind, i.Id) == selectedKey);
         if (index < 0)
         {
-            // Se empieza en el audio actual (nunca en «Volver a modo PC», para que un A sin querer no cambie de modo).
+            // Se empieza en el audio actual (nunca en el cambio de modo, para que un A sin querer no cambie de modo).
             index = _items.FindIndex(i => i.Kind == ItemKind.Audio && i.IsCurrent);
             if (index < 0)
             {
-                index = Math.Max(0, _items.FindIndex(i => i.Kind != ItemKind.SwitchToPc));
+                index = Math.Max(0, _items.FindIndex(i => i.Kind != ItemKind.SwitchMode));
             }
         }
         _selected = Math.Clamp(index, 0, Math.Max(0, _items.Count - 1));
@@ -345,7 +347,19 @@ public sealed class OverlayForm : Form
         }
 
         var item = _items[_selected];
-        if (item.Kind == ItemKind.SwitchToPc)
+        if (item.Kind == ItemKind.SwitchMode && item.Id == "console")
+        {
+            // Primero se cierra el overlay (esperando a que se suelte la A) y se devuelve el foco; después se cambia
+            // de modo, para que Big Picture se abra delante sin pelear por el foco con el overlay.
+            Log.Info("Overlay: ir a modo consola");
+            _busy = true;
+            _idleTimer.Stop();
+            SetStatus("Pasando a modo consola…");
+            FormClosed += (_, _) => _ = _switcher.SwitchAsync(AppMode.Console);
+            CloseWhenReleased();
+            return;
+        }
+        if (item.Kind == ItemKind.SwitchMode)
         {
             // El overlay se queda delante (con el foco) hasta que Big Picture se ha cerrado. Si se cerrase antes,
             // Big Picture recuperaría el foco con la A aún pulsada y lanzaría el juego que tuviera seleccionado.
@@ -454,7 +468,7 @@ public sealed class OverlayForm : Form
         var listTop = y;
         var sections = new[]
         {
-            (ItemKind.SwitchToPc, "🎮  Modo consola activo"),
+            (ItemKind.SwitchMode, _switcher.State.Mode == AppMode.Console ? "🎮  Modo consola activo" : "🖥  Modo PC activo"),
             (ItemKind.Audio, "🔊  Audio"),
             (ItemKind.Display, "🖥  Pantalla principal"),
         };
@@ -542,7 +556,7 @@ public sealed class OverlayForm : Form
                 var fore = selected ? Color.White : TextColor;
                 var bulletRect = new Rectangle(bounds.X + rowPadX, bounds.Y, bulletWidth, bounds.Height);
                 var textRect = Rectangle.FromLTRB(bulletRect.Right, bounds.Y, bounds.Right - rowPadX, bounds.Bottom);
-                var bullet = item.Kind == ItemKind.SwitchToPc ? "↩" : item.IsCurrent ? "●" : "○";
+                var bullet = item.Kind == ItemKind.SwitchMode ? (item.Id == "pc" ? "↩" : "▶") : item.IsCurrent ? "●" : "○";
                 TextRenderer.DrawText(g, bullet, line.Font, bulletRect, fore, TextFlags);
                 TextRenderer.DrawText(g, item.Name, line.Font, textRect, fore, TextFlags | TextFormatFlags.EndEllipsis);
             }

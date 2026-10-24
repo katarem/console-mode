@@ -15,8 +15,11 @@ public sealed record PairRequest(string DeviceId, string DeviceName, string Remo
 /// </summary>
 public sealed class RemoteServer : IDisposable
 {
-    /// <summary>2: añade get_devices / set_audio / set_display (cambios rápidos temporales).</summary>
-    public const int ProtocolVersion = 2;
+    /// <summary>
+    /// 2: añade get_devices / set_audio / set_display (cambios rápidos temporales).
+    /// 3: auth_ok y pair_ok incluyen «wake» (MAC y broadcast para encender el PC con Wake-on-LAN).
+    /// </summary>
+    public const int ProtocolVersion = 3;
     private const int MaxLineLength = 16 * 1024;
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan PairingTimeout = TimeSpan.FromSeconds(90);
@@ -317,7 +320,12 @@ public sealed class RemoteServer : IDisposable
 
         session.Device = device;
         Log.Info($"{device.Name} conectado desde {remote}");
-        await session.SendAsync(new JsonObject { ["type"] = "auth_ok", ["pcName"] = Environment.MachineName });
+        await session.SendAsync(new JsonObject
+        {
+            ["type"] = "auth_ok",
+            ["pcName"] = Environment.MachineName,
+            ["wake"] = WakeTargetsJson(),
+        });
         await session.SendAsync(StatusMessage(_switcher.State));
         DevicesChanged?.Invoke();
     }
@@ -397,9 +405,25 @@ public sealed class RemoteServer : IDisposable
             ["token"] = token,
             ["pcId"] = _settings.PcId,
             ["pcName"] = Environment.MachineName,
+            ["wake"] = WakeTargetsJson(),
         });
         await session.SendAsync(StatusMessage(_switcher.State));
         DevicesChanged?.Invoke();
+    }
+
+    private static JsonArray WakeTargetsJson()
+    {
+        try
+        {
+            return new JsonArray(NetworkInfo.GetWakeTargets()
+                .Select(t => (JsonNode)new JsonObject { ["mac"] = t.Mac, ["broadcast"] = t.Broadcast })
+                .ToArray());
+        }
+        catch (Exception ex)
+        {
+            Log.Error("No se pudieron leer las tarjetas de red para Wake-on-LAN", ex);
+            return new JsonArray();
+        }
     }
 
     private void Broadcast(JsonObject message)

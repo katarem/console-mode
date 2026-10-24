@@ -52,6 +52,34 @@ public sealed class MainForm : Form
     private readonly Button _checkUpdatesButton = new() { Text = "Buscar actualizaciones", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
     private readonly Button _installUpdateButton = new() { Text = "Actualizar ahora", AutoSize = true, Padding = new Padding(8, 2, 8, 2), Visible = false };
 
+    private readonly CheckBox _wakeNetwork = new()
+    {
+        Text = "Tarjeta de red: activar Wake-on-LAN (solo con el «paquete mágico» que envía el móvil)",
+        AutoSize = true,
+        MaximumSize = new Size(540, 0),
+    };
+    private readonly CheckBox _wakeGamepad = new()
+    {
+        Text = "Mando: permitir que el adaptador Xbox o el Bluetooth despierten el PC de la suspensión",
+        AutoSize = true,
+        MaximumSize = new Size(540, 0),
+    };
+    private readonly CheckBox _wakeFastStartup = new()
+    {
+        Text = "Desactivar el inicio rápido de Windows (en muchos PCs hace falta para encender desde apagado)",
+        AutoSize = true,
+        MaximumSize = new Size(540, 0),
+    };
+    private readonly CheckBox _wakeNoSignIn = new()
+    {
+        Text = "No pedir el PIN al volver de la suspensión (al encender o reiniciar se sigue pidiendo)",
+        AutoSize = true,
+        MaximumSize = new Size(540, 0),
+    };
+    private readonly Button _wakeApply = new() { Text = "Aplicar", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
+    private readonly Button _wakeRevert = new() { Text = "Deshacer todo", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
+    private readonly Label _wakeStatus = new() { AutoSize = true, MaximumSize = new Size(540, 0), Margin = new Padding(3, 8, 3, 3) };
+
     private bool _loading;
 
     public MainForm(TrayApplicationContext app)
@@ -90,6 +118,7 @@ public sealed class MainForm : Form
         tabs.TabPages.Add(BuildModesTab());
         var devicesTab = BuildDevicesTab();
         tabs.TabPages.Add(devicesTab);
+        tabs.TabPages.Add(BuildPowerTab());
         tabs.TabPages.Add(BuildSettingsTab());
         tabs.SelectedIndexChanged += (_, _) =>
         {
@@ -247,6 +276,190 @@ public sealed class MainForm : Form
         page.Controls.Add(layout);
         return page;
     }
+
+    private TabPage BuildPowerTab()
+    {
+        var page = new TabPage("Encendido") { Padding = new Padding(10), AutoScroll = true };
+        var layout = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+        };
+
+        layout.Controls.Add(Paragraph(
+            "Enciende o despierta este PC desde el móvil con Wake-on-LAN, y despiértalo con el mando si tu hardware lo " +
+            "permite. Console Mode puede preparar Windows por ti; lo único que tienes que hacer a mano es activar " +
+            "Wake-on-LAN en la BIOS (mira la guía de abajo)."));
+
+        var setup = NewGroup("Preparar Windows");
+        setup.Dock = DockStyle.None;
+        setup.MinimumSize = new Size(540, 0);
+        var setupFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        setupFlow.Controls.Add(_wakeNetwork);
+        setupFlow.Controls.Add(_wakeGamepad);
+        setupFlow.Controls.Add(_wakeFastStartup);
+        setupFlow.Controls.Add(_wakeNoSignIn);
+        var setupButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 8, 0, 0) };
+        setupButtons.Controls.Add(_wakeApply);
+        setupButtons.Controls.Add(_wakeRevert);
+        setupFlow.Controls.Add(setupButtons);
+        setupFlow.Controls.Add(Paragraph(
+            "Windows pedirá permiso de administrador. Console Mode guarda cómo estaba cada ajuste: con «Deshacer todo», " +
+            "o al desinstalar la app, todo vuelve a quedar como antes. Al aplicar, la red puede cortarse un momento."));
+        setupFlow.Controls.Add(_wakeStatus);
+        setup.Controls.Add(setupFlow);
+        layout.Controls.Add(setup);
+
+        var guide = NewGroup("Guía");
+        guide.Dock = DockStyle.None;
+        guide.MinimumSize = new Size(540, 0);
+        var guideFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        guideFlow.Controls.Add(Heading("1. Activa Wake-on-LAN en la BIOS"));
+        guideFlow.Controls.Add(Paragraph(
+            "Reinicia el PC y entra en la BIOS/UEFI (normalmente con Supr o F2 al arrancar). Según el fabricante, la " +
+            "opción se llama «Wake on LAN», «Power On By PCI-E», «Resume by PCI-E Device» o «Remote Wake Up» y suele " +
+            "estar en Energía o APM. Si existe «ErP» o «Deep Sleep», desactívalo: deja la tarjeta de red sin corriente " +
+            "con el PC apagado."));
+        guideFlow.Controls.Add(Heading("2. Conecta el PC por cable"));
+        guideFlow.Controls.Add(Paragraph(
+            "Wake-on-LAN funciona de forma fiable por Ethernet. Por Wi-Fi casi nunca enciende el PC apagado, y desde " +
+            "suspensión solo en algunos equipos."));
+        guideFlow.Controls.Add(Heading("3. Pulsa «Aplicar» y abre la app del móvil"));
+        guideFlow.Controls.Add(Paragraph(
+            "Conecta el móvil a este PC al menos una vez con la versión nueva de la app: así guarda los datos para " +
+            "encenderlo. Después, con el PC apagado o en suspensión, aparece el botón «Encender el PC»."));
+        guideFlow.Controls.Add(Heading("Con el mando"));
+        guideFlow.Controls.Add(Paragraph(
+            "El mando solo puede despertar el PC de la suspensión, y depende del adaptador y de la placa base: pruébalo " +
+            "pulsando el botón Xbox con el PC suspendido. Desde apagado no es posible."));
+        guideFlow.Controls.Add(Heading("Entrar sin escribir la contraseña"));
+        guideFlow.Controls.Add(Paragraph(
+            "Si quieres que Windows inicie sesión solo al encender, configúralo con las herramientas de Windows: Console " +
+            "Mode no guarda tu contraseña. En «Cuentas de usuario» (netplwiz), desmarca «Los usuarios deben escribir su " +
+            "nombre y contraseña». Si no aparece esa casilla, en Configuración → Cuentas → Opciones de inicio de sesión " +
+            "desactiva «Para mayor seguridad, permitir solo el inicio de sesión de Windows Hello». Para deshacerlo, " +
+            "vuelve a marcar la casilla."));
+        var guideButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        var netplwiz = new Button { Text = "Abrir «Cuentas de usuario»", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
+        netplwiz.Click += (_, _) => OpenExternal("netplwiz.exe");
+        var signInOptions = new Button { Text = "Abrir opciones de inicio de sesión", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
+        signInOptions.Click += (_, _) => OpenExternal("ms-settings:signinoptions");
+        guideButtons.Controls.Add(netplwiz);
+        guideButtons.Controls.Add(signInOptions);
+        guideFlow.Controls.Add(guideButtons);
+        guide.Controls.Add(guideFlow);
+        layout.Controls.Add(guide);
+
+        page.Controls.Add(layout);
+
+        _wakeApply.Click += async (_, _) =>
+        {
+            var options = new WakeSetupOptions(_wakeNetwork.Checked, _wakeGamepad.Checked, _wakeFastStartup.Checked, _wakeNoSignIn.Checked);
+            if (options.ToArg().Length == 0)
+            {
+                await RunWakeSetupAsync("Restaurando los ajustes de Windows…", WakeSetup.RevertElevatedAsync);
+                return;
+            }
+            await RunWakeSetupAsync("Preparando Windows…", () => WakeSetup.ApplyElevatedAsync(options));
+        };
+        _wakeRevert.Click += async (_, _) =>
+            await RunWakeSetupAsync("Restaurando los ajustes de Windows…", WakeSetup.RevertElevatedAsync);
+
+        return page;
+    }
+
+    private async Task RunWakeSetupAsync(string progressText, Func<Task<bool>> action)
+    {
+        _wakeApply.Enabled = _wakeRevert.Enabled = false;
+        _wakeStatus.ForeColor = Color.DimGray;
+        _wakeStatus.Text = progressText;
+        try
+        {
+            if (!await action())
+            {
+                ShowWakeState(note: "Cancelado: no se ha cambiado nada.");
+                return;
+            }
+            ShowWakeState();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Encendido a distancia", ex);
+            ShowWakeState(note: ex.Message, error: true);
+        }
+        finally
+        {
+            _wakeApply.Enabled = true;
+        }
+    }
+
+    /// <summary>Marca las opciones aplicadas y muestra el resultado de cada paso.</summary>
+    private void ShowWakeState(string? note = null, bool error = false)
+    {
+        var state = WakeSetup.LoadState();
+        var options = state?.Options ?? WakeSetupOptions.Default;
+        var wasLoading = _loading;
+        _loading = true;
+        _wakeNetwork.Checked = options.Network;
+        _wakeGamepad.Checked = options.Gamepad;
+        _wakeFastStartup.Checked = options.DisableFastStartup;
+        _wakeNoSignIn.Checked = options.NoSignInOnWake;
+        _loading = wasLoading;
+        _wakeRevert.Enabled = state != null;
+
+        var lines = new List<string>();
+        if (note != null)
+        {
+            lines.Add(note);
+        }
+        if (state == null)
+        {
+            lines.Add("Windows está como siempre: Console Mode no ha cambiado nada.");
+        }
+        else
+        {
+            lines.Add($"Aplicado el {state.AppliedAt:g}:");
+            lines.AddRange(state.Results.Select(r => $"{(r.Ok ? "✔" : "⚠")}  {r.Message}"));
+        }
+        _wakeStatus.Text = string.Join("\n", lines);
+        _wakeStatus.ForeColor = error ? Color.Firebrick : Color.DimGray;
+    }
+
+    private void OpenExternal(string target)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            // Aviso de administrador cancelado.
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"No se pudo abrir: {ex.Message}", error: true);
+        }
+    }
+
+    private static Label Heading(string text) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        MaximumSize = new Size(530, 0),
+        Font = new Font("Segoe UI Semibold", 9.5f),
+        Margin = new Padding(3, 8, 3, 2),
+    };
+
+    private static Label Paragraph(string text) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        MaximumSize = new Size(530, 0),
+        ForeColor = Color.DimGray,
+        Margin = new Padding(3, 2, 3, 6),
+    };
 
     private TabPage BuildSettingsTab()
     {
@@ -442,6 +655,7 @@ public sealed class MainForm : Form
         {
             _loading = false;
         }
+        ShowWakeState();
         RefreshQr();
         RefreshDevices();
     }

@@ -35,6 +35,8 @@ Tiene dos partes:
 - **Iniciar con Windows** (opcional), directamente en segundo plano.
 - **Overlay con el mando**: mantén **View + Menú** durante 1 segundo en un mando Xbox para cambiar la salida de audio
   o la pantalla principal desde el sofá (ver más abajo).
+- **Encender el PC desde el móvil** con Wake-on-LAN, y entrar directamente en modo consola. Console Mode prepara
+  Windows por ti (y lo deja como estaba si lo desactivas). Ver [Encender el PC a distancia](#encender-el-pc-a-distancia).
 - **Cambio rápido desde el móvil**: debajo del interruptor puedes elegir la salida de audio y la pantalla principal
   del PC al momento, sin cambiar la configuración de tus modos.
 - **Actualizaciones desde la app**, tanto en el PC como en Android.
@@ -117,8 +119,9 @@ pública.
 Con un mando **Xbox o compatible XInput** (incluidos los 8BitDo en modo X), mantén **View + Menú** (los dos botones
 pequeños del centro) durante **1 segundo**. Aparece un panel en la esquina inferior derecha con:
 
-- **Volver a modo PC** (solo en modo consola): cierra Big Picture y vuelve a tu pantalla y tu audio del modo PC, sin
+- **Volver a modo PC** (en modo consola): cierra Big Picture y vuelve a tu pantalla y tu audio del modo PC, sin
   soltar el mando.
+- **Ir a modo consola** (en modo PC): el panel se cierra y se activa el modo consola, con Big Picture en la TV.
 - **Audio**: todas las salidas de audio. El punto ● marca la actual.
 - **Pantalla principal**: todas las pantallas. Si Big Picture está abierto, se mueve a la pantalla elegida.
 
@@ -135,6 +138,32 @@ Notas:
   ejemplo, puede abrir su menú de pausa).
 - No se ve encima de juegos en **pantalla completa exclusiva**. Con «ventana sin bordes» y en Big Picture sí.
 - Se puede desactivar en *Modos → Modo Consola*. También se abre desde el menú del icono de la bandeja.
+
+### Encender el PC a distancia
+
+Con el PC apagado o en suspensión, la app del móvil muestra **Encender en modo consola** y **Solo encender**. El
+móvil envía un «paquete mágico» de Wake-on-LAN por la red local, espera a que Console Mode responda (hasta 3 minutos)
+y, si lo has pedido, cambia a modo consola. También puedes enviar la señal desde el menú ⋮ de cada PC en la lista.
+
+Para que funcione:
+
+1. **BIOS/UEFI**: activa Wake-on-LAN. Según el fabricante se llama «Wake on LAN», «Power On By PCI-E», «Resume by
+   PCI-E Device» o «Remote Wake Up». Si existe «ErP» o «Deep Sleep», desactívalo.
+2. **Cable**: conecta el PC por Ethernet. Por Wi-Fi casi nunca funciona desde apagado.
+3. **Windows**: en la pestaña *Encendido* de la app de PC, marca lo que quieras y pulsa **Aplicar** (pide permiso de
+   administrador una vez):
+   - **Tarjeta de red**: activa «Activar con paquete mágico» y «Permitir que este dispositivo reactive el equipo», y
+     desactiva el despertar por patrones (para que el tráfico normal de la red no lo despierte).
+   - **Mando**: permite que el adaptador inalámbrico de Xbox y el Bluetooth despierten el PC. Solo funciona desde
+     **suspensión**, y no en todos los equipos: pruébalo pulsando el botón Xbox con el PC suspendido.
+   - **Inicio rápido**: lo desactiva, porque en muchos PCs impide encender desde apagado.
+   - **No pedir el PIN al volver de la suspensión** (desmarcado por defecto). Al encender o reiniciar se sigue
+     pidiendo.
+4. **Móvil**: conéctate al PC una vez con la app nueva para que guarde los datos de su tarjeta de red.
+
+Console Mode guarda cómo estaba cada ajuste en `%ProgramData%\ConsoleMode\wake-setup.json`. Con **Deshacer todo**, o al
+desinstalar la app, todo vuelve a quedar como antes. La pestaña también tiene una guía, incluido cómo hacer que Windows
+inicie sesión solo con sus propias herramientas (Console Mode no guarda tu contraseña).
 
 ### Actualizaciones
 
@@ -175,6 +204,7 @@ carpeta.
 | Colocar Big Picture | Se busca la ventana de `steamwebhelper` cuyo título contiene «Big Picture» (Steam puede separar las palabras con un espacio de no separación, U+00A0) y se mueve con `SetWindowPos` al rectángulo de la pantalla elegida. |
 | Cerrar Big Picture | `steam://close/bigpicture`. Si no responde, se envía `WM_CLOSE` a la ventana. |
 | Overlay del mando | Se lee XInput (`xinput1_4.dll`) en segundo plano a ~30 Hz, sin necesitar el foco. Los huecos de mando vacíos solo se consultan cada 2 s. |
+| Encendido a distancia | El móvil envía el paquete mágico (6 × `0xFF` + la MAC 16 veces) por broadcast UDP a los puertos 9 y 7. Para preparar Windows, la app se relanza como administrador (`--wake-setup apply|revert`) y usa `Set-NetAdapterPowerManagement`, `MSPower_DeviceWakeEnable` (WMI), `HiberbootEnabled` y `powercfg` (CONSOLELOCK). |
 | Red | TCP (JSON por líneas) en el puerto 47820 y descubrimiento UDP en el 47821. Ver [docs/PROTOCOL.md](docs/PROTOCOL.md). |
 
 ### Seguridad
@@ -216,12 +246,12 @@ La versión de cada app es independiente: `<Version>` en `pc/ConsoleMode/Console
 
 ```
 pc/ConsoleMode/
-  Core/       Configuración, cambio de modo, inicio con Windows y log
+  Core/       Configuración, cambio de modo, inicio con Windows, encendido a distancia y log
   Native/     Pantallas, audio y Steam Big Picture (Win32 / COM)
   Network/    Servidor TCP, emparejamiento y descubrimiento UDP
   UI/         Ventana principal, icono de bandeja y diálogo de emparejamiento
 mobile/lib/
-  services/   Protocolo, emparejamiento, conexión y descubrimiento
+  services/   Protocolo, emparejamiento, conexión, descubrimiento y Wake-on-LAN
   screens/    Inicio, escáner QR, búsqueda, emparejamiento y control
   widgets/    Interruptor PC / Consola
 installer/    Script del instalador (Inno Setup)
