@@ -11,8 +11,8 @@
 ---
 
 Al pasar a **modo consola**, Console Mode pone la TV como pantalla principal, cambia el audio a la salida que
-elijas y abre **Steam Big Picture** en esa pantalla. Al volver a **modo PC** cierra Big Picture y deja tu
-monitor y tu audio de siempre.
+elijas y abre **Steam Big Picture** (o **Playnite**, u otro frontal que elijas) en esa pantalla. Al volver a
+**modo PC** lo cierra y deja tu monitor y tu audio de siempre.
 
 Tiene dos partes:
 
@@ -26,8 +26,10 @@ Tiene dos partes:
 - **Interruptor PC / Consola** en el móvil, en la ventana del PC y en el menú del icono de la bandeja.
 - **Por cada modo**: pantalla principal, salida de audio, micrófono y salida de comunicaciones (la que usan Discord,
   Teams o Zoom), o «No cambiar» en cada una.
-- **Steam Big Picture**: se abre al entrar en modo consola, se coloca a la fuerza en la pantalla de la consola y
-  se cierra al volver a modo PC (cada cosa se puede desactivar).
+- **Frontal del modo consola**: **Steam Big Picture**, **Playnite** en pantalla completa u **otro programa** (LaunchBox
+  Big Box, EmulationStation, un launcher propio...). Se abre al entrar en modo consola, se coloca a la fuerza en la
+  pantalla de la consola y se cierra al volver a modo PC (cada cosa se puede desactivar). Con Playnite tienes también
+  los juegos de Epic, GOG, EA, Ubisoft o los emuladores de RetroArch.
 - **Vincular móviles** con código QR o buscando en la red local (broadcast UDP).
 - **Dispositivos de confianza**: la primera vez el PC pregunta «¿Confiar en este dispositivo?». Después no vuelve a
   preguntar. Puedes quitar dispositivos cuando quieras.
@@ -37,8 +39,9 @@ Tiene dos partes:
 - **Overlay con el mando**: mantén **View + Menú** durante 1 segundo en un mando Xbox para cambiar de modo, de audio,
   de micrófono o de pantalla, subir o bajar el volumen y silenciar el sonido o el micrófono desde el sofá (ver más
   abajo).
-- **Encender el PC desde el móvil** con Wake-on-LAN, y entrar directamente en modo consola. Console Mode prepara
-  Windows por ti (y lo deja como estaba si lo desactivas). Ver [Encender el PC a distancia](#encender-el-pc-a-distancia).
+- **Botón de encendido en el móvil**: enciende el PC con Wake-on-LAN y lo pone en el modo que elijas, o lo suspende o
+  apaga. Console Mode prepara Windows por ti (y lo deja como estaba si lo desactivas). Ver
+  [Encender el PC a distancia](#encender-el-pc-a-distancia).
 - **Cambio rápido desde el móvil**: debajo del interruptor puedes elegir la salida de audio, el micrófono, la salida de
   comunicaciones y la pantalla principal del PC al momento, sin cambiar la configuración de tus modos.
 - **Actualizaciones desde la app**, tanto en el PC como en Android.
@@ -125,14 +128,14 @@ pública.
 Con un mando **Xbox o compatible XInput** (incluidos los 8BitDo en modo X), mantén **View + Menú** (los dos botones
 pequeños del centro) durante **1 segundo**. Aparece un panel en la esquina inferior derecha con:
 
-- **Volver a modo PC** (en modo consola): cierra Big Picture y vuelve a tu pantalla y tu audio del modo PC, sin
+- **Volver a modo PC** (en modo consola): cierra el frontal (Big Picture, Playnite...) y vuelve a tu pantalla y tu audio del modo PC, sin
   soltar el mando.
-- **Ir a modo consola** (en modo PC): el panel se cierra y se activa el modo consola, con Big Picture en la TV.
+- **Ir a modo consola** (en modo PC): el panel se cierra y se activa el modo consola, con el frontal en la TV.
 - **Silenciar sonido** y **Silenciar micro**: dos botones, uno al lado del otro (elige con ← →). El micrófono se
   silencia también como dispositivo de comunicaciones, así que Discord tampoco te oye.
 - **Salida de audio**, **Micrófono**, **Comunicaciones** y **Pantalla principal**: cada opción muestra solo lo elegido
   ahora. Al pulsar **A**, el panel pasa al centro de la pantalla con la lista de opciones. Elige con **A** o vuelve
-  con **B**. Si Big Picture está abierto y cambias de pantalla, se mueve a la elegida.
+  con **B**. Si el frontal está abierto y cambias de pantalla, se mueve a la elegida.
 - **Volumen** del sonido y del micrófono: ajústalo con **← →** (de 5 en 5 %). **A** silencia o activa.
 
 Usa la **cruceta o el stick** para moverte, **A** para elegir y **B** (o View + Menú otra vez) para cerrar. El panel
@@ -151,9 +154,15 @@ Notas:
 
 ### Encender el PC a distancia
 
-Con el PC apagado o en suspensión, la app del móvil muestra **Encender en modo consola** y **Solo encender**. El
-móvil envía un «paquete mágico» de Wake-on-LAN por la red local, espera a que Console Mode responda (hasta 3 minutos)
-y, si lo has pedido, cambia a modo consola. También puedes enviar la señal desde el menú ⋮ de cada PC en la lista.
+La pantalla de cada PC en el móvil tiene un **botón de encendido**:
+
+- Con el PC apagado o en suspensión, lo **enciende**: envía un «paquete mágico» de Wake-on-LAN por la red local,
+  espera a que Console Mode responda (hasta 3 minutos) y lo pone en el modo elegido.
+- Con el PC encendido, lo **suspende** o lo **apaga** (pide confirmación).
+
+En el icono de ajustes (arriba a la derecha) eliges, para cada PC, **en qué modo se pone al encender** (Consola, PC o
+sin cambiar) y si el botón **suspende o apaga**. Suspender es más rápido y el PC se vuelve a encender con más
+fiabilidad. También puedes enviar la señal de encendido desde el menú ⋮ de cada PC en la lista.
 
 Para que funcione:
 
@@ -197,8 +206,10 @@ En la pestaña *Ajustes*:
 - **Mostrar icono en la bandeja del sistema**: si lo desactivas, la app sigue funcionando pero sin icono. Para volver
   a ver la ventana, ejecuta otra vez `ConsoleMode.exe`. No se abre una segunda copia: se muestra la ventana de la
   que ya está en marcha.
-- **Iniciar con Windows**: añade la app a `HKCU\…\Run` con el argumento `--background`, así que arranca sin abrir la
-  ventana.
+- **Iniciar con Windows**: crea la tarea programada «Console Mode (tu usuario)», que abre la app en segundo plano
+  (`--background`) nada más iniciar sesión. Es más rápido que la carpeta de inicio o `HKCU\…\Run`, que Windows abre
+  con retraso y uno detrás de otro, y así Console Mode está listo antes para cambiar de pantalla o atender al móvil.
+  Los primeros minutos funciona con prioridad alta. No necesita permisos de administrador.
 - **Salir de Console Mode**: cierra la app del todo (también está en el menú del icono).
 
 La configuración se guarda en `%APPDATA%\ConsoleMode\settings.json` y el registro en `console-mode.log`, en la misma
@@ -213,6 +224,7 @@ carpeta.
 | Abrir Big Picture | `steam://open/bigpicture` |
 | Colocar Big Picture | Se busca la ventana de `steamwebhelper` cuyo título contiene «Big Picture» (Steam puede separar las palabras con un espacio de no separación, U+00A0) y se mueve con `SetWindowPos` al rectángulo de la pantalla elegida. |
 | Cerrar Big Picture | `steam://close/bigpicture`. Si no responde, se envía `WM_CLOSE` a la ventana. |
+| Otros frontales | Playnite se busca en su carpeta de instalación (`Playnite.FullscreenApp.exe`) o se elige a mano. Se abre el `.exe` (si ya está abierto, se pone delante), su ventana más grande se lleva a la pantalla de la consola igual que Big Picture y se cierra con `WM_CLOSE`. |
 | Overlay del mando | Se lee XInput (`xinput1_4.dll`) en segundo plano a ~30 Hz, sin necesitar el foco. Los huecos de mando vacíos solo se consultan cada 2 s. |
 | Encendido a distancia | El móvil envía el paquete mágico (6 × `0xFF` + la MAC 16 veces) por broadcast UDP a los puertos 9 y 7. Para preparar Windows, la app se relanza como administrador (`--wake-setup apply|revert`) y usa `Set-NetAdapterPowerManagement`, `MSPower_DeviceWakeEnable` (WMI), `HiberbootEnabled` y `powercfg` (CONSOLELOCK). |
 | Red | TCP (JSON por líneas) en el puerto 47820 y descubrimiento UDP en el 47821. Ver [docs/PROTOCOL.md](docs/PROTOCOL.md). |
@@ -288,7 +300,7 @@ encima y habrá que desinstalar la app. Si faltan los secretos, la release se pu
 ```
 pc/ConsoleMode/
   Core/       Configuración, cambio de modo, inicio con Windows, encendido a distancia y log
-  Native/     Pantallas, audio y Steam Big Picture (Win32 / COM)
+  Native/     Pantallas, audio, frontales (Big Picture, Playnite...) y energía (Win32 / COM)
   Network/    Servidor TCP, emparejamiento y descubrimiento UDP
   UI/         Ventana principal, icono de bandeja y diálogo de emparejamiento
 mobile/lib/

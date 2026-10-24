@@ -19,6 +19,13 @@ internal static class Program
             return WakeSetup.RunFromCommandLine(args);
         }
 
+        // --enable-startup: lo usa el instalador (como el usuario que instala) para activar el inicio con Windows.
+        if (HasArg(args, StartupManager.EnableArg))
+        {
+            StartupManager.SetEnabled(true);
+            return 0;
+        }
+
         // --exit: cierra la instancia en marcha (lo usa el instalador antes de actualizar o desinstalar).
         var exitRequested = HasArg(args, ExitArg);
 
@@ -60,12 +67,36 @@ internal static class Program
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Error("Excepción no controlada", e.ExceptionObject as Exception);
 
         var startInBackground = HasArg(args, StartupManager.BackgroundArg);
+        if (startInBackground)
+        {
+            // Al iniciar sesión compite con el resto de apps de inicio: con prioridad alta los primeros minutos está
+            // lista antes para cambiar de pantalla o atender al móvil. Después vuelve a la normal.
+            BoostPriorityForStartup();
+        }
         using (var context = new TrayApplicationContext(showWindow: !startInBackground, afterUpdate))
         {
             Application.Run(context);
         }
         mutex.ReleaseMutex();
         return 0;
+    }
+
+    private static void BoostPriorityForStartup()
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            process.PriorityClass = System.Diagnostics.ProcessPriorityClass.AboveNormal;
+            _ = Task.Delay(TimeSpan.FromMinutes(2)).ContinueWith(_ =>
+            {
+                using var current = System.Diagnostics.Process.GetCurrentProcess();
+                current.PriorityClass = System.Diagnostics.ProcessPriorityClass.Normal;
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("No se pudo subir la prioridad al arrancar", ex);
+        }
     }
 
     private static bool HasArg(string[] args, string name) =>

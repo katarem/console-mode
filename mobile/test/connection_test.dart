@@ -26,6 +26,7 @@ class FakePc {
   String audio = 'tv';
   String mic = 'webcam';
   String comms = 'tv';
+  String? power;
   late ServerSocket server;
 
   int get port => server.port;
@@ -38,7 +39,7 @@ class FakePc {
   void _handle(Socket s) {
     const nonce = 'n0nce';
     void send(Map<String, dynamic> m) => s.write('${jsonEncode(m)}\n');
-    send({'type': 'hello', 'version': 4, 'pcId': pcId, 'pcName': 'FAKE-PC', 'nonce': nonce});
+    send({'type': 'hello', 'version': 5, 'pcId': pcId, 'pcName': 'FAKE-PC', 'nonce': nonce});
     void sendDevices() => send({
           'type': 'devices',
           'audio': [
@@ -90,6 +91,10 @@ class FakePc {
           if (device == null) return;
           mic = msg['id'] as String;
           sendDevices();
+        case 'power':
+          if (device == null) return;
+          power = msg['action'] as String;
+          send({'type': 'power_ok', 'action': power});
         case 'set_communications':
           if (device == null) return;
           comms = msg['id'] as String;
@@ -234,5 +239,70 @@ void main() {
     await waitFor(() => conn.audio.length == 2);
     conn.dispose();
     await pc.stop();
+  });
+
+  test('suspende o apaga el PC según lo elegido y lo guarda', () async {
+    final pc = FakePc();
+    await pc.start();
+    final storage = await AppStorage.load();
+    pc.tokens[storage.deviceId] = 'tok';
+    final saved = SavedPc(id: 'pc-1', name: 'FAKE-PC', hosts: ['127.0.0.1'], port: pc.port, token: 'tok');
+    await storage.upsertPc(saved);
+    expect(saved.powerOff, PowerOffAction.sleep);
+    expect(saved.wakeMode, WakeMode.console);
+
+    final conn = PcConnection(saved, storage)..start();
+    await waitFor(() => conn.status == ConnectionStatus.connected && conn.supportsPower);
+    await waitFor(() => conn.audio.length == 2);
+
+    await conn.updatePowerSettings(powerOff: PowerOffAction.shutdown, wakeMode: WakeMode.pc);
+    expect(storage.pcs.single.powerOff, PowerOffAction.shutdown);
+    expect(storage.pcs.single.wakeMode, WakeMode.pc);
+
+    conn.powerOff();
+    expect(conn.poweringOff, isTrue);
+    await waitFor(() => pc.power == 'shutdown' && conn.status == ConnectionStatus.offline);
+    expect(conn.lastError, isNull);
+    conn.dispose();
+    await pc.stop();
+  });
+
+  test('al encender usa el modo elegido para ese PC', () async {
+    final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final port = probe.port;
+    await probe.close();
+
+    final storage = await AppStorage.load();
+    final saved = SavedPc(
+      id: 'pc-1',
+      name: 'FAKE-PC',
+      hosts: ['127.0.0.1'],
+      port: port,
+      token: 'tok',
+      wake: WakeTarget.listFromJson(FakePc.wake),
+      wakeMode: WakeMode.pc,
+    );
+    final conn = PcConnection(saved, storage)..start();
+    await waitFor(() => conn.status == ConnectionStatus.offline, timeout: const Duration(seconds: 15));
+
+    final pc = FakePc(bindPort: port)..mode = 'console';
+    await pc.start();
+    pc.tokens[storage.deviceId] = 'tok';
+    await conn.wake();
+
+    await waitFor(() => conn.mode == PcMode.pc && !conn.busy, timeout: const Duration(seconds: 20));
+    expect(pc.mode, 'pc');
+    await waitFor(() => conn.audio.length == 2);
+    conn.dispose();
+    await pc.stop();
+  });
+
+  test('los PCs guardados sin ajustes de encendido usan los de por defecto', () {
+    final pc = SavedPc.fromJson({'id': 'a', 'name': 'PC', 'hosts': ['1.2.3.4'], 'port': 1, 'token': 't'});
+    expect(pc.wakeMode, WakeMode.console);
+    expect(pc.powerOff, PowerOffAction.sleep);
+    final roundTrip = SavedPc.fromJson(pc.copyWith(wakeMode: WakeMode.keep, powerOff: PowerOffAction.shutdown).toJson());
+    expect(roundTrip.wakeMode, WakeMode.keep);
+    expect(roundTrip.powerOff, PowerOffAction.shutdown);
   });
 }

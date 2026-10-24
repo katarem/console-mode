@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -40,7 +41,10 @@ public sealed class WakeSetupState
 {
     public DateTime AppliedAt { get; set; }
     public WakeSetupOptions Options { get; set; } = WakeSetupOptions.Default;
-    /// <summary>Dispositivos a los que se ha permitido despertar el PC (no lo tenían permitido).</summary>
+    /// <summary>
+    /// Dispositivos a los que se ha permitido despertar el PC (no lo tenían permitido), por su nombre en powercfg. Las
+    /// versiones 1.5.0 y 1.5.1 guardaban la ruta del dispositivo (con «\»).
+    /// </summary>
     public List<string> ArmedDevices { get; set; } = new();
     public List<AdapterBackup> Adapters { get; set; } = new();
     /// <summary>Se ha desactivado el inicio rápido. Valor anterior de HiberbootEnabled (null = no existía).</summary>
@@ -69,7 +73,11 @@ public static class WakeSetup
     // Adaptadores que pueden despertar el PC al pulsar el botón Xbox: el adaptador inalámbrico de Xbox, la radio
     // Bluetooth y los mandos con cable o receptor propio.
     private static readonly Regex GamepadDevice = new(
-        "xbox|8bitdo|bluetooth|game ?controller|gamepad|controlador de juegos|mando", RegexOptions.IgnoreCase);
+        "xbox|8bitdo|bluetooth|game ?controller|gamepad|controlador de juegos|mando|xinput", RegexOptions.IgnoreCase);
+
+    // Dispositivos que encajan por nombre pero no son el mando ni su receptor (p. ej. la red por Bluetooth).
+    private static readonly Regex NotGamepadDevice = new(
+        "keyboard|mouse|teclado|rat[oó]n|personal area network|red de [aá]rea personal", RegexOptions.IgnoreCase);
 
     public static string StateFile => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ConsoleMode", "wake-setup.json");
@@ -180,6 +188,8 @@ public static class WakeSetup
         {
             Log.Error("Encendido a distancia: no se pudo leer qué dispositivos pueden despertar el PC", ex);
             wakeDevices = new List<WakeDevice>();
+            state.Results.Add(new WakeSetupResult(false,
+                $"No se pudo leer qué dispositivos pueden despertar el PC ({FirstLine(ex.Message)})."));
         }
 
         if (options.Network)
@@ -263,11 +273,15 @@ public static class WakeSetup
                     RunPowerShell(set);
                 }
 
-                var pnpId = (string?)adapter["PnpId"];
-                var device = wakeDevices.FirstOrDefault(d => pnpId != null && d.InstanceId.Equals(pnpId, StringComparison.OrdinalIgnoreCase));
+                // «Permitir que este dispositivo reactive el equipo»: powercfg nombra la tarjeta por su descripción.
+                var device = wakeDevices.FirstOrDefault(d => d.Name.Equals(description, StringComparison.OrdinalIgnoreCase));
                 if (device != null)
                 {
                     Arm(state, device);
+                }
+                else
+                {
+                    Log.Info($"Encendido a distancia: «{description}» no aparece en powercfg /devicequery wake_programmable");
                 }
 
                 state.Results.Add(new WakeSetupResult(true, wired
@@ -291,12 +305,15 @@ public static class WakeSetup
     private static void ApplyGamepad(WakeSetupState state, List<WakeDevice> wakeDevices)
     {
         var candidates = wakeDevices
-            .Where(d => GamepadDevice.IsMatch(d.Name) && d.Class is not ("Net" or "Keyboard" or "Mouse"))
+            .Where(d => GamepadDevice.IsMatch(d.Name) && !NotGamepadDevice.IsMatch(d.Name))
             .ToList();
         if (candidates.Count == 0)
         {
-            state.Results.Add(new WakeSetupResult(false,
-                "Mando: no hay ningún adaptador Xbox ni Bluetooth que pueda despertar el PC. Conecta el adaptador y vuelve a aplicar."));
+            var connected = ConnectedGamepadAdapters();
+            state.Results.Add(new WakeSetupResult(false, connected.Count > 0
+                ? $"Mando: Windows no deja que {string.Join(", ", connected.Select(n => $"«{n}»"))} despierte el PC (el adaptador " +
+                  "o el puerto USB no lo admiten). Prueba en otro puerto USB, mejor uno de la placa base, y vuelve a aplicar."
+                : "Mando: no hay ningún adaptador Xbox ni Bluetooth que pueda despertar el PC. Conecta el adaptador y vuelve a aplicar."));
             return;
         }
 
@@ -307,6 +324,28 @@ public static class WakeSetup
         state.Results.Add(new WakeSetupResult(true,
             $"Mando: pueden despertar el PC {string.Join(", ", candidates.Select(d => $"«{d.Name}»").Distinct())}. " +
             "Funciona desde suspensión si tu hardware lo admite; desde apagado no."));
+    }
+
+    /// <summary>Adaptadores del mando conectados (aunque Windows no les deje despertar el PC), para explicar el resultado.</summary>
+    private static List<string> ConnectedGamepadAdapters()
+    {
+        try
+        {
+            return RunPowerShellJson("""
+                Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FriendlyName -match 'xbox|8bitdo' } |
+                  ForEach-Object { "$($_.FriendlyName)" }
+                """)
+                .Select(n => n?.GetValue<string>() ?? "")
+                .Where(n => n.Length > 0 && !NotGamepadDevice.IsMatch(n))
+                .Distinct()
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Encendido a distancia: no se pudieron listar los adaptadores del mando", ex);
+            return new List<string>();
+        }
     }
 
     private static void ApplyFastStartup(WakeSetupState state)
@@ -328,7 +367,7 @@ public static class WakeSetup
     private static void ApplyNoSignIn(WakeSetupState state)
     {
         var scheme = ActiveScheme();
-        var (ac, dc) = QueryConsoleLock(scheme);
+        var (ac, dc) = ReadConsoleLock(scheme);
         if (ac == 0 && dc == 0)
         {
             state.Results.Add(new WakeSetupResult(true, "Inicio de sesión: Windows ya no lo pedía al reactivar."));
@@ -367,9 +406,19 @@ public static class WakeSetup
             });
         }
 
-        foreach (var instance in state.ArmedDevices)
+        foreach (var device in state.ArmedDevices)
         {
-            Try($"quitar el permiso de despertar a {instance}", () => SetWakeEnabled(instance, false));
+            Try($"quitar el permiso de despertar a {device}", () =>
+            {
+                if (device.Contains('\\'))
+                {
+                    SetWakeEnabledByInstance(device, false); // guardado por la 1.5.0 / 1.5.1
+                }
+                else
+                {
+                    SetWakeEnabled(device, false);
+                }
+            });
         }
 
         if (state.FastStartupChanged)
@@ -414,39 +463,44 @@ public static class WakeSetup
     // Dispositivos que pueden despertar el PC («Permitir que este dispositivo reactive el equipo»)
     // =====================================================================================
 
-    private sealed record WakeDevice(string InstanceName, string InstanceId, string Name, string Class, bool Enabled);
+    private sealed record WakeDevice(string Name, bool Enabled);
 
+    /// <summary>
+    /// Lo mismo que «Permitir que este dispositivo reactive el equipo» del Administrador de dispositivos, con powercfg.
+    /// La salida de powercfg se lee antes de pasar la consola a UTF-8, para no estropear los nombres con tildes.
+    /// </summary>
     private static List<WakeDevice> ListWakeDevices()
     {
         var items = RunPowerShellJson("""
-            $devices = @{}
-            Get-PnpDevice -PresentOnly | ForEach-Object { $devices[$_.InstanceId.ToUpperInvariant()] = $_ }
-            Get-CimInstance -Namespace root\wmi -ClassName MSPower_DeviceWakeEnable | ForEach-Object {
-              $id = $_.InstanceName -replace '_\d+$', ''
-              $d = $devices[$id.ToUpperInvariant()]
-              if ($d) {
-                [pscustomobject]@{ InstanceName = $_.InstanceName; InstanceId = $id; Name = "$($d.FriendlyName)"; Class = "$($d.Class)"; Enabled = [bool]$_.Enable }
-              }
-            }
+            $armed = @(powercfg /devicequery wake_armed) | ForEach-Object { "$_".Trim() } | Where-Object { $_ }
+            @(powercfg /devicequery wake_programmable) | ForEach-Object { "$_".Trim() } | Where-Object { $_ } |
+              Sort-Object -Unique |
+              ForEach-Object { [pscustomobject]@{ Name = $_; Enabled = ($armed -contains $_) } }
             """);
-        return items.OfType<JsonObject>()
-            .Select(o => new WakeDevice((string?)o["InstanceName"] ?? "", (string?)o["InstanceId"] ?? "", (string?)o["Name"] ?? "",
-                (string?)o["Class"] ?? "", (bool?)o["Enabled"] == true))
-            .Where(d => d.InstanceName.Length > 0)
+        var devices = items.OfType<JsonObject>()
+            .Select(o => new WakeDevice((string?)o["Name"] ?? "", (bool?)o["Enabled"] == true))
+            .Where(d => d.Name.Length > 0)
             .ToList();
+        Log.Info("Encendido a distancia: pueden despertar el PC: " +
+                 string.Join(" · ", devices.Select(d => d.Enabled ? $"{d.Name} (activado)" : d.Name)));
+        return devices;
     }
 
     private static void Arm(WakeSetupState state, WakeDevice device)
     {
-        if (device.Enabled || state.ArmedDevices.Contains(device.InstanceName))
+        if (device.Enabled || state.ArmedDevices.Contains(device.Name))
         {
             return;
         }
-        SetWakeEnabled(device.InstanceName, true);
-        state.ArmedDevices.Add(device.InstanceName);
+        SetWakeEnabled(device.Name, true);
+        state.ArmedDevices.Add(device.Name);
     }
 
-    private static void SetWakeEnabled(string instanceName, bool enabled) => RunPowerShell(
+    private static void SetWakeEnabled(string name, bool enabled) =>
+        RunPowerShell($"powercfg {(enabled ? "/deviceenablewake" : "/devicedisablewake")} {Quote(name)}; " +
+                      "if ($LASTEXITCODE -ne 0) { throw \"powercfg ha fallado ($LASTEXITCODE)\" }");
+
+    private static void SetWakeEnabledByInstance(string instanceName, bool enabled) => RunPowerShell(
         $"Get-CimInstance -Namespace root\\wmi -ClassName MSPower_DeviceWakeEnable | Where-Object {{ $_.InstanceName -eq {Quote(instanceName)} }} | " +
         $"Set-CimInstance -Property @{{ Enable = ${enabled.ToString().ToLowerInvariant()} }}");
 
@@ -454,31 +508,71 @@ public static class WakeSetup
     // Plan de energía: pedir inicio de sesión al reactivar (CONSOLELOCK)
     // =====================================================================================
 
+    // Con la API de energía y no con «powercfg /query»: CONSOLELOCK es un ajuste oculto y powercfg no lo muestra.
     private static string ActiveScheme()
     {
-        var output = Run("powercfg.exe", "/getactivescheme");
-        var match = Regex.Match(output, @"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
-        return match.Success ? match.Value : throw new InvalidOperationException("No se encuentra el plan de energía activo.");
+        Check(PowerGetActiveScheme(IntPtr.Zero, out var pointer), "leer el plan de energía activo");
+        try
+        {
+            return Marshal.PtrToStructure<Guid>(pointer).ToString();
+        }
+        finally
+        {
+            LocalFree(pointer);
+        }
     }
 
-    private static (int Ac, int Dc) QueryConsoleLock(string scheme)
+    private static (int Ac, int Dc) ReadConsoleLock(string scheme)
     {
-        // La salida está traducida, pero los dos últimos valores hexadecimales son siempre el de corriente y el de batería.
-        var values = Regex.Matches(Run("powercfg.exe", $"/query {scheme} {SubNone} {ConsoleLock}"), @"0x([0-9a-fA-F]{8})")
-            .Select(m => Convert.ToInt32(m.Groups[1].Value, 16))
-            .ToList();
-        return values.Count >= 2 ? (values[^2], values[^1]) : throw new InvalidOperationException("No se pudo leer el plan de energía.");
+        var (schemeGuid, sub, setting) = (Guid.Parse(scheme), Guid.Parse(SubNone), Guid.Parse(ConsoleLock));
+        Check(PowerReadACValueIndex(IntPtr.Zero, ref schemeGuid, ref sub, ref setting, out var ac), "leer el plan de energía");
+        Check(PowerReadDCValueIndex(IntPtr.Zero, ref schemeGuid, ref sub, ref setting, out var dc), "leer el plan de energía");
+        return ((int)ac, (int)dc);
     }
 
     private static void SetConsoleLock(string scheme, int ac, int dc)
     {
-        Run("powercfg.exe", $"/setacvalueindex {scheme} {SubNone} {ConsoleLock} {ac}");
-        Run("powercfg.exe", $"/setdcvalueindex {scheme} {SubNone} {ConsoleLock} {dc}");
+        var (schemeGuid, sub, setting) = (Guid.Parse(scheme), Guid.Parse(SubNone), Guid.Parse(ConsoleLock));
+        Check(PowerWriteACValueIndex(IntPtr.Zero, ref schemeGuid, ref sub, ref setting, (uint)ac), "cambiar el plan de energía");
+        Check(PowerWriteDCValueIndex(IntPtr.Zero, ref schemeGuid, ref sub, ref setting, (uint)dc), "cambiar el plan de energía");
         if (string.Equals(ActiveScheme(), scheme, StringComparison.OrdinalIgnoreCase))
         {
-            Run("powercfg.exe", $"/setactive {scheme}"); // para que el cambio se aplique ya
+            Check(PowerSetActiveScheme(IntPtr.Zero, ref schemeGuid), "aplicar el plan de energía"); // para que se aplique ya
         }
     }
+
+    private static void Check(uint error, string what)
+    {
+        if (error != 0)
+        {
+            throw new InvalidOperationException($"No se pudo {what}: {new Win32Exception((int)error).Message}");
+        }
+    }
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerGetActiveScheme(IntPtr rootPowerKey, out IntPtr activePolicyGuid);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerSetActiveScheme(IntPtr rootPowerKey, ref Guid schemeGuid);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerReadACValueIndex(IntPtr rootPowerKey, ref Guid schemeGuid, ref Guid subGroupGuid,
+        ref Guid settingGuid, out uint value);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerReadDCValueIndex(IntPtr rootPowerKey, ref Guid schemeGuid, ref Guid subGroupGuid,
+        ref Guid settingGuid, out uint value);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerWriteACValueIndex(IntPtr rootPowerKey, ref Guid schemeGuid, ref Guid subGroupGuid,
+        ref Guid settingGuid, uint value);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerWriteDCValueIndex(IntPtr rootPowerKey, ref Guid schemeGuid, ref Guid subGroupGuid,
+        ref Guid settingGuid, uint value);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr memory);
 
     // =====================================================================================
     // Helpers
@@ -492,7 +586,9 @@ public static class WakeSetup
 
     private static JsonArray RunPowerShellJson(string script)
     {
-        var output = RunPowerShell($"@({script}) | ConvertTo-Json -Compress -Depth 3");
+        // La salida se calcula antes de pasar la consola a UTF-8 (powercfg y compañía escriben en la de Windows).
+        var output = RunPowerShell($"$__result = @({script}); [Console]::OutputEncoding = [Text.Encoding]::UTF8; " +
+                                   "ConvertTo-Json -InputObject $__result -Compress -Depth 3");
         return string.IsNullOrWhiteSpace(output)
             ? new JsonArray()
             : JsonNode.Parse(output) switch
@@ -505,7 +601,7 @@ public static class WakeSetup
 
     private static string RunPowerShell(string script)
     {
-        var full = "$ErrorActionPreference = 'Stop'; [Console]::OutputEncoding = [Text.Encoding]::UTF8; " + script;
+        var full = "$ErrorActionPreference = 'Stop'; " + script;
         var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(full));
         return Run("powershell.exe", $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}", Encoding.UTF8);
     }

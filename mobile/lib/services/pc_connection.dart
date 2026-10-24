@@ -35,6 +35,12 @@ class PcConnection extends ChangeNotifier {
   /// Se ha enviado la señal de encendido y se espera a que el PC arranque.
   bool waking = false;
 
+  /// El PC acepta suspender o apagarse desde el móvil (protocolo 5 o superior).
+  bool supportsPower = false;
+
+  /// Se ha pedido suspender o apagar el PC y se está esperando a que se vaya.
+  bool poweringOff = false;
+
   SavedPc get pc => _pc;
 
   /// Tiempo máximo de espera tras enviar la señal de encendido (arrancar Windows puede tardar).
@@ -73,10 +79,29 @@ class PcConnection extends ChangeNotifier {
     _connect();
   }
 
-  /// Enciende o despierta el PC con Wake-on-LAN y espera a que vuelva. Con [thenMode], al conectar cambia a ese modo.
+  /// Guarda el modo al encender y la acción del botón de apagar de este PC.
+  Future<void> updatePowerSettings({WakeMode? wakeMode, PowerOffAction? powerOff}) async {
+    _pc = _pc.copyWith(wakeMode: wakeMode, powerOff: powerOff);
+    await _storage.upsertPc(_pc);
+    _notify();
+  }
+
+  /// Suspende o apaga el PC, según lo elegido para este PC.
+  void powerOff() {
+    final conn = _conn;
+    if (conn == null || status != ConnectionStatus.connected || !supportsPower || poweringOff) return;
+    lastError = null;
+    poweringOff = true;
+    _notify();
+    conn.send({'type': 'power', 'action': _pc.powerOff.wire});
+  }
+
+  /// Enciende o despierta el PC con Wake-on-LAN y espera a que vuelva. Al conectar lo pone en el modo elegido para
+  /// este PC ([SavedPc.wakeMode]), salvo que se indique otro con [thenMode].
   Future<void> wake({PcMode? thenMode}) async {
     if (!_pc.canWake || status == ConnectionStatus.connected) return;
-    _modeAfterWake = thenMode;
+    _modeAfterWake = thenMode ?? _pc.wakeMode.mode;
+    poweringOff = false;
     waking = true;
     lastError = null;
     _notify();
@@ -190,7 +215,9 @@ class PcConnection extends ChangeNotifier {
   Future<void> _session(LineConnection conn) async {
     final hello = await conn.next(timeout: const Duration(seconds: 5));
     if (hello == null || hello['type'] != 'hello') return;
-    supportsQuickSwitch = ((hello['version'] as num?) ?? 1) >= 2;
+    final version = (hello['version'] as num?) ?? 1;
+    supportsQuickSwitch = version >= 2;
+    supportsPower = version >= 5;
     if (hello['pcId'] != _pc.id) {
       lastError = 'En esa dirección hay otro PC.';
       return;
@@ -210,6 +237,7 @@ class PcConnection extends ChangeNotifier {
       switch (msg['type']) {
         case 'auth_ok':
           status = ConnectionStatus.connected;
+          poweringOff = false;
           lastError = null;
           _attempt = 0;
           _pingTimer?.cancel();
@@ -252,8 +280,12 @@ class PcConnection extends ChangeNotifier {
             conn.send({'type': 'set_mode', 'mode': pending.wire});
           }
           _notify();
+        case 'power_ok':
+          // El PC se suspende o se apaga en un momento: no se espera a que la conexión caduque.
+          return;
         case 'error':
           busy = false;
+          poweringOff = false;
           lastError = msg['message'] as String?;
           _notify();
       }
@@ -261,13 +293,21 @@ class PcConnection extends ChangeNotifier {
   }
 
   void _goOffline(String? error) {
+    // Si se acaba de suspender o apagar, que no parezca un error.
+    final poweredOff = poweringOff;
+    poweringOff = false;
     status = ConnectionStatus.offline;
     busy = false;
-    lastError = error;
+    lastError = poweredOff ? null : error;
     _notify();
     if (!_active) return;
-    // Reintentos con espera creciente: 2, 4, 8, 15, 15... segundos (cada 3 s mientras el PC se enciende).
-    final delay = waking ? const Duration(seconds: 3) : Duration(seconds: [2, 4, 8, 15][_attempt.clamp(0, 3)]);
+    // Reintentos con espera creciente: 2, 4, 8, 15, 15... segundos (cada 3 s mientras el PC se enciende). Tras
+    // suspenderlo o apagarlo se espera más, para no volver a conectar mientras aún se está yendo.
+    final delay = waking
+        ? const Duration(seconds: 3)
+        : poweredOff
+            ? const Duration(seconds: 30)
+            : Duration(seconds: [2, 4, 8, 15][_attempt.clamp(0, 3)]);
     _attempt++;
     _retryTimer?.cancel();
     _retryTimer = Timer(delay, _connect);
