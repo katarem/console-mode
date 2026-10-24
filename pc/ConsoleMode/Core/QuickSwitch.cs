@@ -10,8 +10,14 @@ public sealed record QuickOption(string Id, string Name, bool IsCurrent);
 /// </summary>
 public static class QuickSwitch
 {
-    /// <summary>Se dispara (desde cualquier hilo) después de cambiar el audio o la pantalla.</summary>
+    /// <summary>
+    /// Se dispara (desde cualquier hilo) después de cambiar el audio o la pantalla, y cuando se conecta o se quita un
+    /// dispositivo.
+    /// </summary>
     public static event Action? Changed;
+
+    /// <summary>Se ha conectado o quitado una pantalla o un dispositivo de audio (lo avisa DeviceWatcher).</summary>
+    public static void NotifyDevicesChanged() => Changed?.Invoke();
 
     public static IReadOnlyList<QuickOption> AudioOptions() => AudioList(AudioManager.GetOutputDevices);
 

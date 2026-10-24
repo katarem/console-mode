@@ -755,6 +755,15 @@ public sealed class MainForm : Form
         }
     }
 
+    /// <summary>Se ha conectado o quitado una pantalla o un dispositivo de audio.</summary>
+    public void RefreshDeviceLists()
+    {
+        if (!IsDisposed)
+        {
+            LoadDeviceLists();
+        }
+    }
+
     private void LoadDeviceLists()
     {
         var wasLoading = _loading;

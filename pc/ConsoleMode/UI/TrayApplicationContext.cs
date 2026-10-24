@@ -24,6 +24,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _updateTimer;
     private Version? _notifiedUpdate;
     private OverlayForm? _overlay;
+    private DeviceWatcher? _deviceWatcher;
 
     public TrayApplicationContext(bool showWindow, bool afterUpdate = false)
     {
@@ -66,6 +67,26 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
 
         SetGamepadOverlayEnabled(Settings.GamepadOverlayEnabled);
+
+        // Pantallas o audio nuevos (o quitados): se actualizan la ventana, el overlay y los móviles sin reiniciar.
+        try
+        {
+            _deviceWatcher = new DeviceWatcher();
+            _deviceWatcher.Changed += () =>
+            {
+                Log.Info("Ha cambiado la lista de pantallas o de audio");
+                QuickSwitch.NotifyDevicesChanged();
+                RunOnUi(() =>
+                {
+                    _form?.RefreshDeviceLists();
+                    _overlay?.RefreshDevices();
+                });
+            };
+        }
+        catch (Exception ex)
+        {
+            Log.Error("No se pueden vigilar los cambios de pantallas y audio", ex);
+        }
 
         _pcItem = new ToolStripMenuItem("Modo PC", null, (_, _) => _ = Switcher.SwitchAsync(AppMode.Pc));
         _consoleItem = new ToolStripMenuItem("Modo Consola", null, (_, _) => _ = Switcher.SwitchAsync(AppMode.Console));
@@ -289,6 +310,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         Server.Dispose();
         Discovery.Dispose();
         _gamepad?.Dispose();
+        _deviceWatcher?.Dispose();
         _updateTimer.Dispose();
         _overlay?.Close();
         _form?.Close();

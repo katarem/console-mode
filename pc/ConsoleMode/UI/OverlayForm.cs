@@ -475,6 +475,21 @@ public sealed class OverlayForm : Form
         _selected = Math.Clamp(index, 0, Math.Max(0, _rows.Count - 1));
     }
 
+    /// <summary>
+    /// Se ha conectado o quitado una pantalla o un dispositivo de audio. Con una lista abierta, o mientras se aplica un
+    /// cambio, se espera: se verá al volver a la vista principal.
+    /// </summary>
+    public void RefreshDevices()
+    {
+        if (IsDisposed || _picker != null || _busy || _closing)
+        {
+            return;
+        }
+        LoadData();
+        Relayout();
+        Place();
+    }
+
     /// <summary>El volumen también se puede cambiar con el teclado o desde Windows: se vuelve a leer cada segundo.</summary>
     private void RefreshVolumes()
     {
