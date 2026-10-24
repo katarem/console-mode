@@ -24,6 +24,10 @@ public sealed class MainForm : Form
     private readonly ComboBox _pcAudio = NewCombo();
     private readonly ComboBox _consoleDisplay = NewCombo();
     private readonly ComboBox _consoleAudio = NewCombo();
+    private readonly ComboBox _pcMic = NewCombo();
+    private readonly ComboBox _consoleMic = NewCombo();
+    private readonly ComboBox _pcComm = NewCombo();
+    private readonly ComboBox _consoleComm = NewCombo();
     private readonly CheckBox _launchBigPicture = new() { Text = "Abrir Steam Big Picture al activar el modo consola", AutoSize = true };
     private readonly CheckBox _moveBigPicture = new() { Text = "Forzar Big Picture en la pantalla del modo consola", AutoSize = true };
     private readonly CheckBox _closeBigPicture = new() { Text = "Cerrar Big Picture al volver al modo PC", AutoSize = true };
@@ -91,7 +95,7 @@ public sealed class MainForm : Form
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Segoe UI", 9.5f);
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(620, 600);
+        ClientSize = new Size(620, 660);
         MinimumSize = new Size(560, 560);
 
         // ---------- Interruptor PC / Consola ----------
@@ -158,12 +162,16 @@ public sealed class MainForm : Form
         var pcGrid = NewGrid();
         AddRow(pcGrid, "Pantalla principal:", _pcDisplay);
         AddRow(pcGrid, "Salida de audio:", _pcAudio);
+        AddRow(pcGrid, "Micrófono:", _pcMic);
+        AddRow(pcGrid, "Comunicaciones:", _pcComm);
         pcGroup.Controls.Add(pcGrid);
 
         var consoleGroup = NewGroup("🎮  Modo Consola");
         var consoleGrid = NewGrid();
         AddRow(consoleGrid, "Pantalla principal:", _consoleDisplay);
         AddRow(consoleGrid, "Salida de audio:", _consoleAudio);
+        AddRow(consoleGrid, "Micrófono:", _consoleMic);
+        AddRow(consoleGrid, "Comunicaciones:", _consoleComm);
         consoleGrid.Controls.Add(_launchBigPicture);
         consoleGrid.SetColumnSpan(_launchBigPicture, 2);
         consoleGrid.Controls.Add(_moveBigPicture);
@@ -183,8 +191,10 @@ public sealed class MainForm : Form
 
         var hint = new Label
         {
-            Text = "«(No cambiar)» deja la pantalla o el audio como estén. Big Picture se abre en la pantalla principal; " +
-                   "si Steam la abre en otra, Console Mode la mueve a la del modo consola.",
+            Text = "«(No cambiar)» deja la pantalla o el audio como estén. «Comunicaciones» es la salida que usan Discord, " +
+                   "Teams o Zoom con el dispositivo de comunicaciones predeterminado: así puedes oír el juego en la TV y el chat " +
+                   "en los auriculares. El micrófono se usa para todo, también para comunicaciones. Big Picture se abre en la " +
+                   "pantalla principal; si Steam la abre en otra, Console Mode la mueve a la del modo consola.",
             AutoSize = true,
             MaximumSize = new Size(540, 0),
             ForeColor = Color.DimGray,
@@ -201,6 +211,10 @@ public sealed class MainForm : Form
         _consoleDisplay.SelectedIndexChanged += (_, _) => OnDisplayChanged(_consoleDisplay, Settings.ConsoleProfile);
         _pcAudio.SelectedIndexChanged += (_, _) => OnAudioChanged(_pcAudio, Settings.PcProfile);
         _consoleAudio.SelectedIndexChanged += (_, _) => OnAudioChanged(_consoleAudio, Settings.ConsoleProfile);
+        _pcMic.SelectedIndexChanged += (_, _) => OnComboChanged(_pcMic, (o, p) => (p.MicrophoneId, p.MicrophoneName) = (o?.Id, o?.Name), Settings.PcProfile);
+        _consoleMic.SelectedIndexChanged += (_, _) => OnComboChanged(_consoleMic, (o, p) => (p.MicrophoneId, p.MicrophoneName) = (o?.Id, o?.Name), Settings.ConsoleProfile);
+        _pcComm.SelectedIndexChanged += (_, _) => OnComboChanged(_pcComm, (o, p) => (p.CommunicationsId, p.CommunicationsName) = (o?.Id, o?.Name), Settings.PcProfile);
+        _consoleComm.SelectedIndexChanged += (_, _) => OnComboChanged(_consoleComm, (o, p) => (p.CommunicationsId, p.CommunicationsName) = (o?.Id, o?.Name), Settings.ConsoleProfile);
         _launchBigPicture.CheckedChanged += (_, _) => SaveIfNotLoading(() =>
         {
             Settings.LaunchBigPicture = _launchBigPicture.Checked;
@@ -668,6 +682,7 @@ public sealed class MainForm : Form
         {
             IReadOnlyList<DisplayInfo> displays;
             IReadOnlyList<AudioDeviceInfo> audio;
+            IReadOnlyList<AudioDeviceInfo> mics;
             try
             {
                 displays = DisplayManager.GetDisplays();
@@ -686,6 +701,15 @@ public sealed class MainForm : Form
                 audio = Array.Empty<AudioDeviceInfo>();
                 SetStatus($"No se pudieron leer los dispositivos de audio: {ex.Message}", error: true);
             }
+            try
+            {
+                mics = AudioManager.GetInputDevices();
+            }
+            catch (Exception ex)
+            {
+                mics = Array.Empty<AudioDeviceInfo>();
+                SetStatus($"No se pudieron leer los micrófonos: {ex.Message}", error: true);
+            }
 
             var displayOptions = displays.Select(d => new Option(d.Id, d.Label, d.FriendlyName)).ToList();
             var audioOptions = audio.Select(a => new Option(a.Id, a.IsDefault ? $"{a.Name} · predeterminado" : a.Name, a.Name)).ToList();
@@ -694,6 +718,12 @@ public sealed class MainForm : Form
             Fill(_consoleDisplay, displayOptions, Settings.ConsoleProfile.DisplayId, Settings.ConsoleProfile.DisplayName, "no conectada");
             Fill(_pcAudio, audioOptions, Settings.PcProfile.AudioDeviceId, Settings.PcProfile.AudioDeviceName, "no disponible");
             Fill(_consoleAudio, audioOptions, Settings.ConsoleProfile.AudioDeviceId, Settings.ConsoleProfile.AudioDeviceName, "no disponible");
+            var micOptions = mics.Select(a => new Option(a.Id, a.IsDefault ? $"{a.Name} · predeterminado" : a.Name, a.Name)).ToList();
+            var commOptions = audio.Select(a => new Option(a.Id, a.Name, a.Name)).ToList();
+            Fill(_pcMic, micOptions, Settings.PcProfile.MicrophoneId, Settings.PcProfile.MicrophoneName, "no disponible");
+            Fill(_consoleMic, micOptions, Settings.ConsoleProfile.MicrophoneId, Settings.ConsoleProfile.MicrophoneName, "no disponible");
+            Fill(_pcComm, commOptions, Settings.PcProfile.CommunicationsId, Settings.PcProfile.CommunicationsName, "no disponible");
+            Fill(_consoleComm, commOptions, Settings.ConsoleProfile.CommunicationsId, Settings.ConsoleProfile.CommunicationsName, "no disponible");
         }
         finally
         {
@@ -735,6 +765,9 @@ public sealed class MainForm : Form
         profile.AudioDeviceId = o?.Id;
         profile.AudioDeviceName = o?.Name;
     });
+
+    private void OnComboChanged(ComboBox combo, Action<Option?, ModeProfile> apply, ModeProfile profile) =>
+        SaveIfNotLoading(() => apply(combo.SelectedItem as Option, profile));
 
     private void SaveIfNotLoading(Action change)
     {

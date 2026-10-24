@@ -24,7 +24,8 @@ Tiene dos partes:
 ## Funciones
 
 - **Interruptor PC / Consola** en el móvil, en la ventana del PC y en el menú del icono de la bandeja.
-- **Por cada modo**: pantalla principal y salida de audio predeterminada (o «No cambiar»).
+- **Por cada modo**: pantalla principal, salida de audio, micrófono y salida de comunicaciones (la que usan Discord,
+  Teams o Zoom), o «No cambiar» en cada una.
 - **Steam Big Picture**: se abre al entrar en modo consola, se coloca a la fuerza en la pantalla de la consola y
   se cierra al volver a modo PC (cada cosa se puede desactivar).
 - **Vincular móviles** con código QR o buscando en la red local (broadcast UDP).
@@ -33,8 +34,9 @@ Tiene dos partes:
 - **Segundo plano**: al cerrar la ventana la app sigue funcionando. El icono de la bandeja (en «iconos ocultos»)
   es opcional.
 - **Iniciar con Windows** (opcional), directamente en segundo plano.
-- **Overlay con el mando**: mantén **View + Menú** durante 1 segundo en un mando Xbox para cambiar la salida de audio
-  o la pantalla principal desde el sofá (ver más abajo).
+- **Overlay con el mando**: mantén **View + Menú** durante 1 segundo en un mando Xbox para cambiar de modo, de audio,
+  de micrófono o de pantalla, subir o bajar el volumen y silenciar el sonido o el micrófono desde el sofá (ver más
+  abajo).
 - **Encender el PC desde el móvil** con Wake-on-LAN, y entrar directamente en modo consola. Console Mode prepara
   Windows por ti (y lo deja como estaba si lo desactivas). Ver [Encender el PC a distancia](#encender-el-pc-a-distancia).
 - **Cambio rápido desde el móvil**: debajo del interruptor puedes elegir la salida de audio y la pantalla principal
@@ -106,6 +108,10 @@ pública.
 1. **Configura los modos**, en la pestaña *Modos* de la app de PC:
    - Modo PC: tu monitor como pantalla principal y tus auriculares o altavoces.
    - Modo Consola: la TV como pantalla principal y la salida de audio de la TV o del receptor AV.
+   - **Micrófono** y **Comunicaciones** (opcionales): por ejemplo, el juego por la TV y Discord por los auriculares
+     con su micrófono. «Comunicaciones» es el «dispositivo de comunicaciones predeterminado» de Windows: Discord lo usa
+     si eliges ese dispositivo en sus ajustes de voz. El micrófono se pone como predeterminado y también como el de
+     comunicaciones.
 
    La TV tiene que estar **encendida y conectada** (como pantalla extendida) para que aparezca en la lista y para
    poder cambiar a ella.
@@ -122,8 +128,12 @@ pequeños del centro) durante **1 segundo**. Aparece un panel en la esquina infe
 - **Volver a modo PC** (en modo consola): cierra Big Picture y vuelve a tu pantalla y tu audio del modo PC, sin
   soltar el mando.
 - **Ir a modo consola** (en modo PC): el panel se cierra y se activa el modo consola, con Big Picture en la TV.
-- **Audio**: todas las salidas de audio. El punto ● marca la actual.
-- **Pantalla principal**: todas las pantallas. Si Big Picture está abierto, se mueve a la pantalla elegida.
+- **Silenciar sonido** y **Silenciar micro**: dos botones, uno al lado del otro (elige con ← →). El micrófono se
+  silencia también como dispositivo de comunicaciones, así que Discord tampoco te oye.
+- **Salida de audio**, **Micrófono**, **Comunicaciones** y **Pantalla principal**: cada opción muestra solo lo elegido
+  ahora. Al pulsar **A**, el panel pasa al centro de la pantalla con la lista de opciones. Elige con **A** o vuelve
+  con **B**. Si Big Picture está abierto y cambias de pantalla, se mueve a la elegida.
+- **Volumen** del sonido y del micrófono: ajústalo con **← →** (de 5 en 5 %). **A** silencia o activa.
 
 Usa la **cruceta o el stick** para moverte, **A** para elegir y **B** (o View + Menú otra vez) para cerrar. El panel
 también se cierra solo tras 20 segundos sin usarlo.
@@ -199,7 +209,7 @@ carpeta.
 | Acción | Cómo |
 |---|---|
 | Pantalla principal | `QueryDisplayConfig` para identificar cada monitor de forma estable (nombre EDID y ruta del dispositivo) y `ChangeDisplaySettingsEx` con `CDS_SET_PRIMARY`, recolocando todos los monitores para que el nuevo principal quede en (0,0). |
-| Audio predeterminado | Interfaz COM `IPolicyConfig` (la misma que usa el panel de Sonido de Windows), para los roles consola, multimedia y comunicaciones. El audio se cambia después de la pantalla y se reintenta unos segundos, porque la salida HDMI de una TV puede tardar en aparecer. |
+| Audio predeterminado | Interfaz COM `IPolicyConfig` (la misma que usa el panel de Sonido de Windows), para los roles consola, multimedia y comunicaciones (la salida de comunicaciones del modo, si la hay, cambia solo ese rol después). Volumen y silencio con `IAudioEndpointVolume` (NAudio). El audio se cambia después de la pantalla y se reintenta unos segundos, porque la salida HDMI de una TV puede tardar en aparecer. |
 | Abrir Big Picture | `steam://open/bigpicture` |
 | Colocar Big Picture | Se busca la ventana de `steamwebhelper` cuyo título contiene «Big Picture» (Steam puede separar las palabras con un espacio de no separación, U+00A0) y se mueve con `SetWindowPos` al rectángulo de la pantalla elegida. |
 | Cerrar Big Picture | `steam://close/bigpicture`. Si no responde, se envía `WM_CLOSE` a la ventana. |

@@ -5,19 +5,24 @@ public enum PadAction
     ToggleOverlay,
     Up,
     Down,
+    Left,
+    Right,
     Accept,
     Back,
 }
 
 /// <summary>
 /// Convierte el estado de un mando (botones XInput + stick izquierdo) en acciones del overlay:
-/// mantener View + Menú abre/cierra, la cruceta o el stick navegan (con repetición al mantener),
+/// mantener View + Menú abre/cierra, la cruceta o el stick navegan arriba/abajo y ajustan a izquierda/derecha
+/// (con repetición al mantener),
 /// A elige y B cierra. No depende de Windows para poder probarse aparte.
 /// </summary>
 public sealed class GamepadNavigator
 {
     public const ushort DpadUp = 0x0001;
     public const ushort DpadDown = 0x0002;
+    public const ushort DpadLeft = 0x0004;
+    public const ushort DpadRight = 0x0008;
     public const ushort Start = 0x0010; // Menú
     public const ushort Back = 0x0020;  // View
     public const ushort ButtonA = 0x1000;
@@ -36,7 +41,7 @@ public sealed class GamepadNavigator
     private int _direction;
     private TimeSpan _nextRepeat;
 
-    public List<PadAction> Update(ushort buttons, short leftStickY, TimeSpan now, bool overlayOpen)
+    public List<PadAction> Update(ushort buttons, short leftStickX, short leftStickY, TimeSpan now, bool overlayOpen)
     {
         var actions = new List<PadAction>();
 
@@ -63,22 +68,24 @@ public sealed class GamepadNavigator
             return actions;
         }
 
-        // ----- Arriba / abajo con repetición -----
-        var direction = (buttons & DpadUp) != 0 || leftStickY > StickThreshold ? -1
-            : (buttons & DpadDown) != 0 || leftStickY < -StickThreshold ? 1
+        // ----- Dirección con repetición (arriba/abajo tiene prioridad sobre izquierda/derecha) -----
+        var direction = (buttons & DpadUp) != 0 || leftStickY > StickThreshold ? 1
+            : (buttons & DpadDown) != 0 || leftStickY < -StickThreshold ? 2
+            : (buttons & DpadLeft) != 0 || leftStickX < -StickThreshold ? 3
+            : (buttons & DpadRight) != 0 || leftStickX > StickThreshold ? 4
             : 0;
         if (direction != _direction)
         {
             _direction = direction;
             if (direction != 0)
             {
-                actions.Add(direction < 0 ? PadAction.Up : PadAction.Down);
+                actions.Add(ToAction(direction));
                 _nextRepeat = now + RepeatDelay;
             }
         }
         else if (direction != 0 && now >= _nextRepeat)
         {
-            actions.Add(direction < 0 ? PadAction.Up : PadAction.Down);
+            actions.Add(ToAction(direction));
             _nextRepeat = now + RepeatInterval;
         }
 
@@ -95,6 +102,14 @@ public sealed class GamepadNavigator
         _previous = buttons;
         return actions;
     }
+
+    private static PadAction ToAction(int direction) => direction switch
+    {
+        1 => PadAction.Up,
+        2 => PadAction.Down,
+        3 => PadAction.Left,
+        _ => PadAction.Right,
+    };
 
     private bool Pressed(ushort buttons, ushort mask) => (buttons & mask) != 0 && (_previous & mask) == 0;
 }

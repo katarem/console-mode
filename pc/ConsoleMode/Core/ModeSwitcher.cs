@@ -132,6 +132,7 @@ public sealed class ModeSwitcher
     /// <summary>
     /// Primero la pantalla y después el audio: la salida HDMI/DisplayPort de una TV a veces
     /// no aparece hasta que su pantalla está activa, así que el audio se reintenta unos segundos.
+    /// La salida de comunicaciones va después de la normal, que también cambia la de comunicaciones.
     /// </summary>
     private static async Task ApplyProfileAsync(ModeProfile profile, List<string> errors)
     {
@@ -147,24 +148,33 @@ public sealed class ModeSwitcher
             }
         }
 
-        if (!string.IsNullOrEmpty(profile.AudioDeviceId))
+        await ApplyAudioAsync(profile.AudioDeviceId, profile.AudioDeviceName, "Audio", AudioManager.SetDefaultOutput, errors);
+        await ApplyAudioAsync(profile.MicrophoneId, profile.MicrophoneName, "Micrófono", AudioManager.SetDefaultInput, errors);
+        await ApplyAudioAsync(profile.CommunicationsId, profile.CommunicationsName, "Comunicaciones",
+            AudioManager.SetCommunicationOutput, errors);
+    }
+
+    private static async Task ApplyAudioAsync(string? id, string? name, string what, Action<string> apply, List<string> errors)
+    {
+        if (string.IsNullOrEmpty(id))
         {
-            for (var attempt = 1; ; attempt++)
+            return;
+        }
+        for (var attempt = 1; ; attempt++)
+        {
+            try
             {
-                try
+                apply(id);
+                return;
+            }
+            catch (Exception ex)
+            {
+                if (attempt >= 8)
                 {
-                    AudioManager.SetDefaultOutput(profile.AudioDeviceId);
-                    break;
+                    errors.Add($"{what} ({name}): {ex.Message}");
+                    return;
                 }
-                catch (Exception ex)
-                {
-                    if (attempt >= 8)
-                    {
-                        errors.Add($"Audio ({profile.AudioDeviceName}): {ex.Message}");
-                        break;
-                    }
-                    await Task.Delay(750);
-                }
+                await Task.Delay(750);
             }
         }
     }
