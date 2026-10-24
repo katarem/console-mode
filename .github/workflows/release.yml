@@ -1,0 +1,214 @@
+name: Release
+
+# Una sola compilación completa por versión. Al fusionar en main (o al lanzarlo a mano con «Run workflow»), si la
+# versión de las apps todavía no tiene su etiqueta vX.Y.Z, se compilan las apps que han cambiado desde la etiqueta
+# anterior, se crea la etiqueta y se publica la release. Si la etiqueta ya existe, no se compila nada: el código ya se
+# comprobó en la pull request (ci.yml).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Nunca dos publicaciones a la vez; una nueva espera a que termine la anterior.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    name: Versión y cambios
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      pc: ${{ steps.diff.outputs.pc }}
+      mobile: ${{ steps.diff.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # La etiqueta es la versión más alta de las dos apps (<Version> del .csproj y version: del pubspec.yaml).
+      - id: version
+        run: |
+          pc=$(sed -nE 's#.*<Version>([0-9]+\.[0-9]+\.[0-9]+)</Version>.*#\1#p' pc/ConsoleMode/ConsoleMode.csproj | head -n1)
+          mobile=$(sed -nE 's/^version: *([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' mobile/pubspec.yaml)
+          version=$(printf '%s\n' "$pc" "$mobile" | sed '/^$/d' | sort -V | tail -n1)
+          echo "PC: $pc · Móvil: $mobile · Release: v$version"
+          if [[ -z "$version" ]]; then
+            echo "No se ha podido leer la versión: no se publica release"
+          elif git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
+            echo "La etiqueta v$version ya existe: no hay nada que publicar. Sube la versión de la app que cambie."
+          else
+            echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Apps que han cambiado desde la etiqueta anterior. Si cambian los workflows, o no hay etiqueta anterior, las dos.
+      - id: diff
+        if: steps.version.outputs.tag != ''
+        run: |
+          base=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
+          if [[ -z "$base" ]]; then
+            echo "Primera release: se compila todo"
+            echo "pc=true" >> "$GITHUB_OUTPUT"
+            echo "mobile=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed=$(git diff --name-only "$base" HEAD)
+          echo "Cambios desde $base:"
+          echo "$changed"
+
+          ci=false
+          grep -q '^\.github/workflows/' <<< "$changed" && ci=true
+
+          pc=false
+          mobile=false
+          if [[ $ci == true ]] || grep -qE '^(pc|installer)/' <<< "$changed"; then pc=true; fi
+          if [[ $ci == true ]] || grep -qE '^mobile/' <<< "$changed"; then mobile=true; fi
+          echo "pc=$pc" >> "$GITHUB_OUTPUT"
+          echo "mobile=$mobile" >> "$GITHUB_OUTPUT"
+          echo "PC: $pc · Móvil: $mobile"
+
+  windows:
+    name: App de PC (Windows)
+    needs: version
+    if: needs.version.outputs.pc == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publicar ConsoleMode.exe
+        run: >
+          dotnet publish pc/ConsoleMode/ConsoleMode.csproj -c Release -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -o publish
+
+      - name: Crear instalador y versión portable
+        shell: pwsh
+        run: |
+          $version = ([xml](Get-Content pc/ConsoleMode/ConsoleMode.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DAppVersion=$version" "/DSourceExe=..\publish\ConsoleMode.exe" installer\ConsoleMode.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item "installer\Output\ConsoleMode-Setup-$version.exe" dist\
+          Copy-Item publish\ConsoleMode.exe "dist\ConsoleMode-$version-portable.exe"
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ConsoleMode-windows
+          path: dist/*
+
+  android:
+    name: App móvil (Android)
+    needs: version
+    if: needs.version.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      apk: ${{ steps.signing.outputs.ok }}
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      # El APK se firma siempre con la misma clave (secretos del repositorio). Android solo instala una actualización
+      # encima si la firma coincide; sin la clave, la CI firmaría con una de depuración nueva en cada ejecución y el
+      # móvil diría «package conflicts with an existing package». Sin los secretos no se publica el APK.
+      - name: Clave de firma
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -z "$KEYSTORE_BASE64" || -z "$KEYSTORE_PASSWORD" || -z "$KEY_ALIAS" ]]; then
+            echo "::warning::Faltan los secretos ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD o ANDROID_KEY_ALIAS: esta release no lleva APK."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+          {
+            echo "storeFile=upload-keystore.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+          } > android/key.properties
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - if: steps.signing.outputs.ok == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - if: steps.signing.outputs.ok == 'true'
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.6'
+          channel: stable
+          cache: true
+
+      - if: steps.signing.outputs.ok == 'true'
+        run: flutter pub get
+      # La versión se incrusta en la app para que pueda buscar actualizaciones.
+      - name: Compilar APK
+        if: steps.signing.outputs.ok == 'true'
+        run: |
+          version=$(sed -nE 's/^version: *([^+]+).*/\1/p' pubspec.yaml)
+          flutter build apk --release --dart-define=APP_VERSION=$version
+
+      - name: Renombrar APK y mostrar el certificado de la firma
+        if: steps.signing.outputs.ok == 'true'
+        run: |
+          version=$(sed -nE 's/^version: *([^+]+).*/\1/p' pubspec.yaml)
+          apk="build/app/outputs/flutter-apk/ConsoleMode-$version.apk"
+          mv build/app/outputs/flutter-apk/app-release.apk "$apk"
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n1)/apksigner
+          "$apksigner" verify --print-certs "$apk" | grep -i 'SHA-256'
+
+      - if: steps.signing.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ConsoleMode-android
+          path: mobile/build/app/outputs/flutter-apk/ConsoleMode-*.apk
+
+  release:
+    name: Publicar release
+    # Se publica con lo que se haya compilado: si una app no ha cambiado desde la etiqueta anterior, su archivo no
+    # se vuelve a subir (la app de esa plataforma busca su actualización en las releases anteriores).
+    if: >
+      always() && needs.version.outputs.tag != '' &&
+      needs.windows.result != 'failure' && needs.android.result != 'failure' &&
+      (needs.windows.result == 'success' || needs.android.outputs.apk == 'true')
+    needs: [version, windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # Crea la etiqueta en este commit. Al hacerlo con el token de la CI no se lanza otra ejecución.
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          files: dist/*
+          generate_release_notes: true

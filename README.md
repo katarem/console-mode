@@ -245,12 +245,43 @@ Para generar el instalador hace falta [Inno Setup 6](https://jrsoftware.org/isin
 iscc /DAppVersion=1.1.0 /DSourceExe=..\publish\ConsoleMode.exe installer\ConsoleMode.iss
 ```
 
-GitHub Actions solo compila la app que ha cambiado: `pc/` o `installer/` para la de Windows y `mobile/` para la
-móvil. Si cambia la propia CI, compila las dos. Al subir una etiqueta `vX.Y.Z`, se compara con la etiqueta anterior y
-la release lleva los archivos de las apps que hayan cambiado.
-
 La versión de cada app es independiente: `<Version>` en `pc/ConsoleMode/ConsoleMode.csproj` y `version:` en
 `mobile/pubspec.yaml`. El nombre de cada archivo de la release lleva la versión de su app.
+
+GitHub Actions tiene dos workflows:
+
+- **`ci.yml`, en cada pull request**: comprobaciones rápidas de la app que haya cambiado (`dotnet build` para la de
+  PC; `flutter analyze` y `flutter test` para la móvil). No genera instaladores ni APK. Un push nuevo cancela la
+  comprobación anterior de la misma PR, y los cambios que solo tocan el README o `docs/` no lanzan nada.
+- **`release.yml`, al fusionar en `main`**: la etiqueta es la versión más alta de las dos apps. Si esa etiqueta
+  `vX.Y.Z` todavía no existe, compila (una sola vez) las apps que hayan cambiado desde la etiqueta anterior, crea la
+  etiqueta y publica la release. Si ya existe, no compila nada. Para sacar una release, sube la versión de la app que
+  cambie en el mismo PR. También se puede lanzar a mano con «Run workflow».
+
+Si cambian los propios workflows, se compilan las dos apps.
+
+### Firma del APK
+
+Android solo instala una actualización encima de la app si está firmada con **la misma clave**. La CI firma el APK con
+la clave guardada en estos secretos del repositorio (*Settings → Secrets and variables → Actions*):
+
+| Secreto | Contenido |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | El archivo `.jks` en Base64. |
+| `ANDROID_KEYSTORE_PASSWORD` | Contraseña del almacén. |
+| `ANDROID_KEY_ALIAS` | Alias de la clave (por ejemplo `upload`). |
+| `ANDROID_KEY_PASSWORD` | Contraseña de la clave (opcional si es la misma que la del almacén). |
+
+Para crearla una sola vez, con el `keytool` de Java o el de Android Studio (`jbr\bin\keytool.exe`):
+
+```powershell
+keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("upload-keystore.jks")) | Set-Clipboard   # pega esto en ANDROID_KEYSTORE_BASE64
+```
+
+Guarda una copia del `.jks` y de su contraseña fuera del repositorio: si se pierde, el siguiente APK no se podrá instalar
+encima y habrá que desinstalar la app. Si faltan los secretos, la release se publica sin APK. Compilando en local sin
+`android/key.properties`, se firma con la clave de depuración.
 
 ## Estructura
 

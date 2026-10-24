@@ -1,0 +1,104 @@
+name: CI
+
+# Comprobaciones rápidas de cada pull request: compilar la app de PC y pasar el análisis y los tests de la móvil.
+# No se generan el instalador, la versión portable ni el APK: eso solo se hace una vez por versión, al publicar la
+# release (release.yml).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+
+# Un push nuevo a la misma PR cancela la comprobación que siga en marcha.
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Solo se comprueba la app que ha cambiado respecto a la rama base. Si cambian los workflows, las dos.
+  changes:
+    name: Detectar cambios
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    outputs:
+      pc: ${{ steps.diff.outputs.pc }}
+      mobile: ${{ steps.diff.outputs.mobile }}
+      android: ${{ steps.diff.outputs.android }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          changed=$(git diff --name-only "origin/$BASE_REF...HEAD")
+          echo "Cambios respecto a $BASE_REF:"
+          echo "$changed"
+
+          ci=false
+          grep -q '^\.github/workflows/' <<< "$changed" && ci=true
+
+          pc=false
+          mobile=false
+          if [[ $ci == true ]] || grep -qE '^(pc|installer)/' <<< "$changed"; then pc=true; fi
+          if [[ $ci == true ]] || grep -qE '^mobile/' <<< "$changed"; then mobile=true; fi
+          # Si cambia la configuración de Android (Gradle, firma...), también se compila el APK.
+          android=false
+          if grep -q '^mobile/android/' <<< "$changed"; then android=true; fi
+          echo "pc=$pc" >> "$GITHUB_OUTPUT"
+          echo "mobile=$mobile" >> "$GITHUB_OUTPUT"
+          echo "android=$android" >> "$GITHUB_OUTPUT"
+          echo "PC: $pc · Móvil: $mobile · APK: $android"
+
+  pc:
+    name: App de PC (compilar)
+    needs: changes
+    if: needs.changes.outputs.pc == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - run: dotnet build pc/ConsoleMode/ConsoleMode.csproj -c Release
+
+  mobile:
+    name: App móvil (análisis y tests)
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.6'
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+      - if: needs.changes.outputs.android == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      # Sin key.properties se firma con la clave de depuración: solo comprueba que Gradle compila.
+      - if: needs.changes.outputs.android == 'true'
+        run: flutter build apk --release

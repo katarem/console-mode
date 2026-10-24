@@ -52,12 +52,14 @@ public sealed class OverlayForm : Form
     private static readonly TimeSpan IdleClose = TimeSpan.FromSeconds(20);
     private const int VolumeStep = 5;
 
+    // PreserveGraphicsClipping: sin él, TextRenderer ignora el recorte del Graphics y el texto de las filas que
+    // asoman por debajo de la lista se dibujaba encima del pie.
     private const TextFormatFlags TextFlags =
         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
-        TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
+        TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.PreserveGraphicsClipping;
     private const TextFormatFlags CenterFlags =
         TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
-        TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
+        TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.PreserveGraphicsClipping;
 
     private enum RowKind
     {
@@ -985,7 +987,9 @@ public sealed class OverlayForm : Form
                 var titleRect = new Rectangle(text.Left, bounds.Top + Px(10), text.Width, f.Small.Height);
                 TextRenderer.DrawText(g, row.Title, f.Small, titleRect, titleColor, TextFlags | TextFormatFlags.EndEllipsis);
                 TextRenderer.DrawText(g, volume.Muted ? "Silenciado" : $"{volume.Percent} %", f.SmallBold, titleRect,
-                    volume.Muted ? ErrorColor : TextColor, TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+                    volume.Muted ? ErrorColor : TextColor,
+                    TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding |
+                    TextFormatFlags.PreserveGraphicsClipping);
                 if (VolumeTrack(bounds) is { } track)
                 {
                     FillRound(g, track, track.Height / 2, selected ? Color.FromArgb(120, 255, 255, 255) : TrackColor);
