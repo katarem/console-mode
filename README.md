@@ -246,11 +246,15 @@ iscc /DAppVersion=1.1.0 /DSourceExe=..\publish\ConsoleMode.exe installer\Console
 ```
 
 GitHub Actions solo compila la app que ha cambiado: `pc/` o `installer/` para la de Windows y `mobile/` para la
-móvil. Si cambia la propia CI, compila las dos. Al subir una etiqueta `vX.Y.Z`, se compara con la etiqueta anterior y
-la release lleva los archivos de las apps que hayan cambiado.
+móvil. Si cambia la propia CI, compila las dos.
 
 La versión de cada app es independiente: `<Version>` en `pc/ConsoleMode/ConsoleMode.csproj` y `version:` en
 `mobile/pubspec.yaml`. El nombre de cada archivo de la release lleva la versión de su app.
+
+**Las releases salen solas al fusionar en `main`.** La etiqueta es la versión más alta de las dos apps. Si esa etiqueta
+`vX.Y.Z` todavía no existe, la CI la crea y publica la release con los archivos de las apps que hayan cambiado desde la
+etiqueta anterior. Si ya existe, solo compila. Para sacar una release, sube la versión de la app que cambie en el
+mismo PR. También se puede seguir subiendo una etiqueta `vX.Y.Z` a mano.
 
 ## Estructura
 
