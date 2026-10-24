@@ -32,6 +32,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         _ = _ui.Handle;
 
         Settings = AppSettings.Load();
+        ConsoleFrontend.Init(Settings);
         _ = Task.Run(StartupManager.RefreshPathIfEnabled); // usa schtasks: que no retrase el arranque
         AppIcon = LoadIcon();
 

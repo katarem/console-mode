@@ -84,22 +84,22 @@ public static class QuickSwitch
         Changed?.Invoke();
     }
 
-    /// <summary>Cambia la pantalla principal y, si Big Picture está abierto, lo lleva a esa pantalla.</summary>
+    /// <summary>Cambia la pantalla principal y, si el frontal (Big Picture, Playnite...) está abierto, lo lleva a esa pantalla.</summary>
     public static void SetDisplay(string id, string origin)
     {
         DisplayManager.SetPrimary(id);
         Log.Info($"{origin}: pantalla principal cambiada (temporal)");
-        if (SteamBigPicture.IsOpen)
+        if (ConsoleFrontend.IsOpen)
         {
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await SteamBigPicture.EnsureOnDisplayAsync(id, TimeSpan.FromSeconds(5));
+                    await ConsoleFrontend.EnsureOnDisplayAsync(id, TimeSpan.FromSeconds(5));
                 }
                 catch (Exception ex)
                 {
-                    Log.Error("No se pudo mover Big Picture", ex);
+                    Log.Error($"No se pudo mover {ConsoleFrontend.Name}", ex);
                 }
             });
         }

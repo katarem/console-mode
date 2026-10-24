@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ConsoleMode.Native;
 
 namespace ConsoleMode.Core;
 
@@ -88,9 +89,20 @@ public sealed class AppSettings
     public ModeProfile PcProfile { get; set; } = new();
     public ModeProfile ConsoleProfile { get; set; } = new();
 
-    public bool LaunchBigPicture { get; set; } = true;
-    public bool MoveBigPictureToConsoleDisplay { get; set; } = true;
-    public bool CloseBigPictureOnPcMode { get; set; } = true;
+    /// <summary>Programa que se abre en la TV en modo consola: Big Picture, Playnite u otro.</summary>
+    public FrontendKind Frontend { get; set; } = FrontendKind.SteamBigPicture;
+    /// <summary>Playnite.FullscreenApp.exe elegido a mano. Null = buscarlo en su carpeta de instalación.</summary>
+    public string? PlaynitePath { get; set; }
+    public string? CustomFrontendPath { get; set; }
+    public string? CustomFrontendArgs { get; set; }
+
+    // Los nombres JSON son los de cuando solo había Big Picture, para conservar la configuración.
+    [JsonPropertyName("LaunchBigPicture")]
+    public bool LaunchFrontend { get; set; } = true;
+    [JsonPropertyName("MoveBigPictureToConsoleDisplay")]
+    public bool MoveFrontendToConsoleDisplay { get; set; } = true;
+    [JsonPropertyName("CloseBigPictureOnPcMode")]
+    public bool CloseFrontendOnPcMode { get; set; } = true;
 
     /// <summary>Mantener View + Menú en un mando Xbox abre el overlay de audio y pantalla.</summary>
     public bool GamepadOverlayEnabled { get; set; } = true;

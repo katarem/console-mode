@@ -28,9 +28,15 @@ public sealed class MainForm : Form
     private readonly ComboBox _consoleMic = NewCombo();
     private readonly ComboBox _pcComm = NewCombo();
     private readonly ComboBox _consoleComm = NewCombo();
-    private readonly CheckBox _launchBigPicture = new() { Text = "Abrir Steam Big Picture al activar el modo consola", AutoSize = true };
-    private readonly CheckBox _moveBigPicture = new() { Text = "Forzar Big Picture en la pantalla del modo consola", AutoSize = true };
-    private readonly CheckBox _closeBigPicture = new() { Text = "Cerrar Big Picture al volver al modo PC", AutoSize = true };
+    private readonly ComboBox _frontend = NewCombo();
+    private readonly Label _frontendPathLabel = new() { Text = "Programa:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 6, 8, 6) };
+    private readonly TextBox _frontendPath = new() { Dock = DockStyle.Fill, Margin = new Padding(3, 3, 3, 6) };
+    private readonly Button _frontendBrowse = new() { Text = "Examinar…", AutoSize = true, Margin = new Padding(3, 2, 3, 6) };
+    private readonly Label _frontendArgsLabel = new() { Text = "Argumentos:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 6, 8, 6) };
+    private readonly TextBox _frontendArgs = new() { Dock = DockStyle.Fill, Margin = new Padding(3, 3, 3, 6) };
+    private readonly CheckBox _launchFrontend = new() { Text = "Abrir el frontal al activar el modo consola", AutoSize = true };
+    private readonly CheckBox _moveFrontend = new() { Text = "Forzar el frontal en la pantalla del modo consola", AutoSize = true };
+    private readonly CheckBox _closeFrontend = new() { Text = "Cerrar el frontal al volver al modo PC", AutoSize = true };
     private readonly CheckBox _gamepadOverlay = new()
     {
         Text = "Overlay con el mando: mantén View + Menú 1 s para cambiar audio y pantalla",
@@ -172,12 +178,22 @@ public sealed class MainForm : Form
         AddRow(consoleGrid, "Salida de audio:", _consoleAudio);
         AddRow(consoleGrid, "Micrófono:", _consoleMic);
         AddRow(consoleGrid, "Comunicaciones:", _consoleComm);
-        consoleGrid.Controls.Add(_launchBigPicture);
-        consoleGrid.SetColumnSpan(_launchBigPicture, 2);
-        consoleGrid.Controls.Add(_moveBigPicture);
-        consoleGrid.SetColumnSpan(_moveBigPicture, 2);
-        consoleGrid.Controls.Add(_closeBigPicture);
-        consoleGrid.SetColumnSpan(_closeBigPicture, 2);
+        AddRow(consoleGrid, "Frontal:", _frontend);
+        var pathRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = Padding.Empty };
+        pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        pathRow.Controls.Add(_frontendPath, 0, 0);
+        pathRow.Controls.Add(_frontendBrowse, 1, 0);
+        consoleGrid.Controls.Add(_frontendPathLabel);
+        consoleGrid.Controls.Add(pathRow);
+        consoleGrid.Controls.Add(_frontendArgsLabel);
+        consoleGrid.Controls.Add(_frontendArgs);
+        consoleGrid.Controls.Add(_launchFrontend);
+        consoleGrid.SetColumnSpan(_launchFrontend, 2);
+        consoleGrid.Controls.Add(_moveFrontend);
+        consoleGrid.SetColumnSpan(_moveFrontend, 2);
+        consoleGrid.Controls.Add(_closeFrontend);
+        consoleGrid.SetColumnSpan(_closeFrontend, 2);
         consoleGrid.Controls.Add(_gamepadOverlay);
         consoleGrid.SetColumnSpan(_gamepadOverlay, 2);
         consoleGroup.Controls.Add(consoleGrid);
@@ -193,8 +209,9 @@ public sealed class MainForm : Form
         {
             Text = "«(No cambiar)» deja la pantalla o el audio como estén. «Comunicaciones» es la salida que usan Discord, " +
                    "Teams o Zoom con el dispositivo de comunicaciones predeterminado: así puedes oír el juego en la TV y el chat " +
-                   "en los auriculares. El micrófono se usa para todo, también para comunicaciones. Big Picture se abre en la " +
-                   "pantalla principal; si Steam la abre en otra, Console Mode la mueve a la del modo consola.",
+                   "en los auriculares. El micrófono se usa para todo, también para comunicaciones. El frontal (Big Picture, " +
+                   "Playnite u otro programa, como LaunchBox Big Box o EmulationStation) se abre en la pantalla principal; si " +
+                   "se abre en otra, Console Mode lo mueve a la del modo consola.",
             AutoSize = true,
             MaximumSize = new Size(540, 0),
             ForeColor = Color.DimGray,
@@ -215,13 +232,46 @@ public sealed class MainForm : Form
         _consoleMic.SelectedIndexChanged += (_, _) => OnComboChanged(_consoleMic, (o, p) => (p.MicrophoneId, p.MicrophoneName) = (o?.Id, o?.Name), Settings.ConsoleProfile);
         _pcComm.SelectedIndexChanged += (_, _) => OnComboChanged(_pcComm, (o, p) => (p.CommunicationsId, p.CommunicationsName) = (o?.Id, o?.Name), Settings.PcProfile);
         _consoleComm.SelectedIndexChanged += (_, _) => OnComboChanged(_consoleComm, (o, p) => (p.CommunicationsId, p.CommunicationsName) = (o?.Id, o?.Name), Settings.ConsoleProfile);
-        _launchBigPicture.CheckedChanged += (_, _) => SaveIfNotLoading(() =>
+        _frontend.Items.AddRange(new object[] { "Steam Big Picture", "Playnite (pantalla completa)", "Otro programa…" });
+        _frontend.SelectedIndexChanged += (_, _) =>
         {
-            Settings.LaunchBigPicture = _launchBigPicture.Checked;
-            _moveBigPicture.Enabled = _launchBigPicture.Checked;
+            SaveIfNotLoading(() => Settings.Frontend = (FrontendKind)_frontend.SelectedIndex);
+            ShowFrontendOptions();
+        };
+        _frontendPath.TextChanged += (_, _) => SaveIfNotLoading(() =>
+        {
+            var path = string.IsNullOrWhiteSpace(_frontendPath.Text) ? null : _frontendPath.Text.Trim().Trim('"');
+            if (Settings.Frontend == FrontendKind.Playnite)
+            {
+                Settings.PlaynitePath = path;
+            }
+            else
+            {
+                Settings.CustomFrontendPath = path;
+            }
         });
-        _moveBigPicture.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.MoveBigPictureToConsoleDisplay = _moveBigPicture.Checked);
-        _closeBigPicture.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.CloseBigPictureOnPcMode = _closeBigPicture.Checked);
+        _frontendArgs.TextChanged += (_, _) => SaveIfNotLoading(() =>
+            Settings.CustomFrontendArgs = string.IsNullOrWhiteSpace(_frontendArgs.Text) ? null : _frontendArgs.Text.Trim());
+        _frontendBrowse.Click += (_, _) =>
+        {
+            using var dialog = new OpenFileDialog
+            {
+                Title = Settings.Frontend == FrontendKind.Playnite ? $"Elige {ConsoleFrontend.PlayniteExe}" : "Elige el programa del frontal",
+                Filter = "Programas (*.exe)|*.exe",
+                FileName = Settings.Frontend == FrontendKind.Playnite ? ConsoleFrontend.PlayniteExe : "",
+            };
+            if (dialog.ShowDialog(this) == DialogResult.OK)
+            {
+                _frontendPath.Text = dialog.FileName;
+            }
+        };
+        _launchFrontend.CheckedChanged += (_, _) => SaveIfNotLoading(() =>
+        {
+            Settings.LaunchFrontend = _launchFrontend.Checked;
+            _moveFrontend.Enabled = _launchFrontend.Checked;
+        });
+        _moveFrontend.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.MoveFrontendToConsoleDisplay = _moveFrontend.Checked);
+        _closeFrontend.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.CloseFrontendOnPcMode = _closeFrontend.Checked);
         _gamepadOverlay.CheckedChanged += (_, _) =>
         {
             if (!_loading)
@@ -655,10 +705,12 @@ public sealed class MainForm : Form
         try
         {
             LoadDeviceLists();
-            _launchBigPicture.Checked = Settings.LaunchBigPicture;
-            _moveBigPicture.Checked = Settings.MoveBigPictureToConsoleDisplay;
-            _moveBigPicture.Enabled = Settings.LaunchBigPicture;
-            _closeBigPicture.Checked = Settings.CloseBigPictureOnPcMode;
+            _frontend.SelectedIndex = (int)Settings.Frontend;
+            ShowFrontendOptions();
+            _launchFrontend.Checked = Settings.LaunchFrontend;
+            _moveFrontend.Checked = Settings.MoveFrontendToConsoleDisplay;
+            _moveFrontend.Enabled = Settings.LaunchFrontend;
+            _closeFrontend.Checked = Settings.CloseFrontendOnPcMode;
             _gamepadOverlay.Checked = Settings.GamepadOverlayEnabled;
             _showTray.Checked = Settings.ShowTrayIcon;
             _startWithWindows.Checked = StartupManager.IsEnabled;
@@ -672,6 +724,35 @@ public sealed class MainForm : Form
         ShowWakeState();
         RefreshQr();
         RefreshDevices();
+    }
+
+    /// <summary>Ruta del programa (Playnite u otro) y argumentos (solo otro programa) según el frontal elegido.</summary>
+    private void ShowFrontendOptions()
+    {
+        var kind = Settings.Frontend;
+        var wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            _frontendPathLabel.Visible = _frontendPath.Parent!.Visible = kind != FrontendKind.SteamBigPicture;
+            _frontendArgsLabel.Visible = _frontendArgs.Visible = kind == FrontendKind.Custom;
+            if (kind == FrontendKind.Playnite)
+            {
+                _frontendPath.Text = Settings.PlaynitePath ?? "";
+                var detected = ConsoleFrontend.DetectPlaynite();
+                _frontendPath.PlaceholderText = detected ?? $"No se ha encontrado Playnite: instálalo o elige {ConsoleFrontend.PlayniteExe}";
+            }
+            else if (kind == FrontendKind.Custom)
+            {
+                _frontendPath.Text = Settings.CustomFrontendPath ?? "";
+                _frontendPath.PlaceholderText = "Ruta del .exe (LaunchBox Big Box, EmulationStation, tu launcher…)";
+                _frontendArgs.Text = Settings.CustomFrontendArgs ?? "";
+            }
+        }
+        finally
+        {
+            _loading = wasLoading;
+        }
     }
 
     private void LoadDeviceLists()

@@ -4,7 +4,7 @@ namespace ConsoleMode.Core;
 
 public sealed record ModeState(AppMode Mode, bool Busy, string? Error = null);
 
-/// <summary>Aplica los perfiles de pantalla/audio y gestiona Big Picture al cambiar de modo.</summary>
+/// <summary>Aplica los perfiles de pantalla/audio y abre o cierra el frontal (Big Picture, Playnite...) al cambiar de modo.</summary>
 public sealed class ModeSwitcher
 {
     private readonly AppSettings _settings;
@@ -73,12 +73,12 @@ public sealed class ModeSwitcher
         var profile = _settings.ConsoleProfile;
         await ApplyProfileAsync(profile, errors);
 
-        if (!_settings.LaunchBigPicture)
+        if (!_settings.LaunchFrontend)
         {
             return;
         }
 
-        // Damos tiempo a Windows para asentar la nueva disposición de pantallas antes de abrir Steam.
+        // Damos tiempo a Windows para asentar la nueva disposición de pantallas antes de abrir el frontal.
         if (!string.IsNullOrEmpty(profile.DisplayId))
         {
             await Task.Delay(1500);
@@ -86,27 +86,27 @@ public sealed class ModeSwitcher
 
         try
         {
-            SteamBigPicture.Open();
+            ConsoleFrontend.Open();
         }
         catch (Exception ex)
         {
-            errors.Add($"No se pudo abrir Steam Big Picture: {ex.Message}");
+            errors.Add($"No se pudo abrir {ConsoleFrontend.Name}: {ex.Message}");
             return;
         }
 
-        if (_settings.MoveBigPictureToConsoleDisplay && !string.IsNullOrEmpty(profile.DisplayId))
+        if (_settings.MoveFrontendToConsoleDisplay && !string.IsNullOrEmpty(profile.DisplayId))
         {
-            // No bloqueamos el cambio de modo esperando a Steam (puede tardar si estaba cerrado).
+            // No bloqueamos el cambio de modo esperando al frontal (puede tardar si estaba cerrado).
             var displayId = profile.DisplayId;
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await SteamBigPicture.EnsureOnDisplayAsync(displayId, TimeSpan.FromSeconds(60));
+                    await ConsoleFrontend.EnsureOnDisplayAsync(displayId, TimeSpan.FromSeconds(60));
                 }
                 catch (Exception ex)
                 {
-                    Log.Error("No se pudo recolocar Big Picture", ex);
+                    Log.Error($"No se pudo recolocar {ConsoleFrontend.Name}", ex);
                 }
             });
         }
@@ -114,15 +114,15 @@ public sealed class ModeSwitcher
 
     private async Task EnterPcAsync(List<string> errors)
     {
-        if (_settings.CloseBigPictureOnPcMode)
+        if (_settings.CloseFrontendOnPcMode)
         {
             try
             {
-                await SteamBigPicture.CloseAsync();
+                await ConsoleFrontend.CloseAsync();
             }
             catch (Exception ex)
             {
-                errors.Add($"No se pudo cerrar Big Picture: {ex.Message}");
+                errors.Add($"No se pudo cerrar {ConsoleFrontend.Name}: {ex.Message}");
             }
         }
 
