@@ -114,6 +114,20 @@ public sealed class TrayApplicationContext : ApplicationContext
         };
         _updateTimer.Start();
 
+        // La primera vez que se abre el overlay hay que cargar el audio, las fuentes y el propio código: si eso pasa al
+        // pulsar View + Menú, Big Picture sigue con el foco un momento y también recibe la cruceta. Se hace ya, en segundo
+        // plano para el usuario (el overlay no se llega a mostrar).
+        var warmup = new System.Windows.Forms.Timer { Interval = (int)TimeSpan.FromSeconds(3).TotalMilliseconds };
+        warmup.Tick += (_, _) =>
+        {
+            warmup.Dispose();
+            if (_overlay == null)
+            {
+                OverlayForm.Warmup(AppIcon, Switcher);
+            }
+        };
+        warmup.Start();
+
         if (showWindow)
         {
             ShowMainWindow();

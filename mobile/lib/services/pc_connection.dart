@@ -6,6 +6,7 @@ import 'discovery.dart';
 import 'models.dart';
 import 'protocol.dart';
 import 'storage.dart';
+import 'wake_on_lan.dart';
 
 enum ConnectionStatus { connecting, connected, offline, unauthorized }
 
@@ -27,7 +28,17 @@ class PcConnection extends ChangeNotifier {
   List<QuickOption> audio = const [];
   List<QuickOption> displays = const [];
 
+  /// Micrófonos y salidas de comunicaciones (Discord, Teams...). Vacías si el PC usa un protocolo anterior al 4.
+  List<QuickOption> microphones = const [];
+  List<QuickOption> communications = const [];
+
+  /// Se ha enviado la señal de encendido y se espera a que el PC arranque.
+  bool waking = false;
+
   SavedPc get pc => _pc;
+
+  /// Tiempo máximo de espera tras enviar la señal de encendido (arrancar Windows puede tardar).
+  static const wakeTimeout = Duration(minutes: 3);
 
   LineConnection? _conn;
   Timer? _pingTimer;
@@ -35,6 +46,10 @@ class PcConnection extends ChangeNotifier {
   bool _active = false;
   bool _disposed = false;
   int _attempt = 0;
+  PcMode? _modeAfterWake;
+  PcMode? _pendingMode;
+  Timer? _wakeTimer;
+  Timer? _wakeResendTimer;
 
   void start() {
     if (_active) return;
@@ -44,6 +59,7 @@ class PcConnection extends ChangeNotifier {
 
   void stop() {
     _active = false;
+    _endWake();
     _retryTimer?.cancel();
     _closeConnection();
   }
@@ -55,6 +71,48 @@ class PcConnection extends ChangeNotifier {
     _retryTimer?.cancel();
     _attempt = 0;
     _connect();
+  }
+
+  /// Enciende o despierta el PC con Wake-on-LAN y espera a que vuelva. Con [thenMode], al conectar cambia a ese modo.
+  Future<void> wake({PcMode? thenMode}) async {
+    if (!_pc.canWake || status == ConnectionStatus.connected) return;
+    _modeAfterWake = thenMode;
+    waking = true;
+    lastError = null;
+    _notify();
+    try {
+      await WakeOnLan.wake(_pc.wake);
+    } catch (e) {
+      _endWake(error: 'No se pudo enviar la señal de encendido: $e');
+      return;
+    }
+    // Se repite la señal de vez en cuando por si se pierde y se reintenta conectar a menudo mientras arranca.
+    _wakeResendTimer?.cancel();
+    _wakeResendTimer = Timer.periodic(const Duration(seconds: 15), (_) => WakeOnLan.wake(_pc.wake).ignore());
+    _wakeTimer?.cancel();
+    _wakeTimer = Timer(wakeTimeout, () {
+      if (status != ConnectionStatus.connected) {
+        _endWake(
+            error: 'El PC no ha respondido. Comprueba que Wake-on-LAN esté activado en la BIOS y en la pestaña '
+                '«Encendido» de Console Mode, y que el PC esté conectado por cable.');
+      }
+    });
+    _active = true;
+    _attempt = 0;
+    if (status != ConnectionStatus.connecting) {
+      _retryTimer?.cancel();
+      _connect();
+    }
+  }
+
+  void _endWake({String? error}) {
+    _wakeTimer?.cancel();
+    _wakeResendTimer?.cancel();
+    if (!waking) return;
+    waking = false;
+    _modeAfterWake = null;
+    if (error != null) lastError = error;
+    _notify();
   }
 
   void setMode(PcMode target) {
@@ -71,6 +129,12 @@ class PcConnection extends ChangeNotifier {
 
   /// Cambia la pantalla principal del PC sin tocar la configuración de sus modos.
   void setDisplay(String id) => _sendQuick('set_display', id);
+
+  /// Cambia el micrófono del PC (predeterminado y de comunicaciones) sin tocar sus modos.
+  void setMicrophone(String id) => _sendQuick('set_microphone', id);
+
+  /// Cambia la salida de comunicaciones del PC (la que usan Discord, Teams...) sin tocar sus modos.
+  void setCommunications(String id) => _sendQuick('set_communications', id);
 
   void _sendQuick(String type, String id) {
     final conn = _conn;
@@ -104,7 +168,7 @@ class PcConnection extends ChangeNotifier {
       return;
     }
     if (conn == null) {
-      _goOffline('No se encuentra el PC en la red. ¿Está encendido y con Console Mode abierto?');
+      _goOffline(waking ? null : 'No se encuentra el PC en la red. ¿Está encendido y con Console Mode abierto?');
       return;
     }
 
@@ -155,7 +219,15 @@ class PcConnection extends ChangeNotifier {
             _pc = _pc.copyWith(name: name);
             await _storage.upsertPc(_pc);
           }
+          final wake = WakeTarget.listFromJson(msg['wake']);
+          if (wake.isNotEmpty && !listEquals(wake, _pc.wake)) {
+            _pc = _pc.copyWith(wake: wake);
+            await _storage.upsertPc(_pc);
+          }
           if (supportsQuickSwitch) conn.send({'type': 'get_devices'});
+          // Si se ha encendido para entrar en un modo, se pide al llegar el estado (justo después de auth_ok).
+          _pendingMode = _modeAfterWake;
+          _endWake();
           _notify();
         case 'auth_failed':
           status = ConnectionStatus.unauthorized;
@@ -166,11 +238,19 @@ class PcConnection extends ChangeNotifier {
         case 'devices':
           audio = QuickOption.listFromJson(msg['audio']);
           displays = QuickOption.listFromJson(msg['displays']);
+          microphones = QuickOption.listFromJson(msg['mics']);
+          communications = QuickOption.listFromJson(msg['comms']);
           _notify();
         case 'status':
           mode = PcMode.fromWire(msg['mode'] as String?);
           busy = msg['busy'] == true;
           lastError = msg['error'] as String?;
+          final pending = _pendingMode;
+          _pendingMode = null;
+          if (pending != null && !busy && mode != pending) {
+            busy = true;
+            conn.send({'type': 'set_mode', 'mode': pending.wire});
+          }
           _notify();
         case 'error':
           busy = false;
@@ -186,8 +266,8 @@ class PcConnection extends ChangeNotifier {
     lastError = error;
     _notify();
     if (!_active) return;
-    // Reintentos con espera creciente: 2, 4, 8, 15, 15... segundos.
-    final delay = Duration(seconds: [2, 4, 8, 15][_attempt.clamp(0, 3)]);
+    // Reintentos con espera creciente: 2, 4, 8, 15, 15... segundos (cada 3 s mientras el PC se enciende).
+    final delay = waking ? const Duration(seconds: 3) : Duration(seconds: [2, 4, 8, 15][_attempt.clamp(0, 3)]);
     _attempt++;
     _retryTimer?.cancel();
     _retryTimer = Timer(delay, _connect);

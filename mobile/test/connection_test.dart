@@ -12,31 +12,46 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Servidor falso que imita a la app de PC.
 class FakePc {
-  FakePc({this.approve = true});
+  FakePc({this.approve = true, this.bindPort = 0});
+
+  static const wake = [
+    {'mac': 'AA:BB:CC:DD:EE:FF', 'broadcast': '127.255.255.255'},
+  ];
 
   final bool approve;
+  final int bindPort;
   final pcId = 'pc-1';
   final tokens = <String, String>{};
   String mode = 'pc';
   String audio = 'tv';
+  String mic = 'webcam';
+  String comms = 'tv';
   late ServerSocket server;
 
   int get port => server.port;
 
   Future<void> start() async {
-    server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    server = await ServerSocket.bind(InternetAddress.loopbackIPv4, bindPort);
     server.listen(_handle);
   }
 
   void _handle(Socket s) {
     const nonce = 'n0nce';
     void send(Map<String, dynamic> m) => s.write('${jsonEncode(m)}\n');
-    send({'type': 'hello', 'version': 2, 'pcId': pcId, 'pcName': 'FAKE-PC', 'nonce': nonce});
+    send({'type': 'hello', 'version': 4, 'pcId': pcId, 'pcName': 'FAKE-PC', 'nonce': nonce});
     void sendDevices() => send({
           'type': 'devices',
           'audio': [
             {'id': 'tv', 'name': 'SAMSUNG', 'current': audio == 'tv'},
             {'id': 'hp', 'name': 'Headphones', 'current': audio == 'hp'},
+          ],
+          'mics': [
+            {'id': 'webcam', 'name': 'Webcam', 'current': mic == 'webcam'},
+            {'id': 'headset', 'name': 'Arctis 7', 'current': mic == 'headset'},
+          ],
+          'comms': [
+            {'id': 'tv', 'name': 'SAMSUNG', 'current': comms == 'tv'},
+            {'id': 'hp', 'name': 'Headphones', 'current': comms == 'hp'},
           ],
           'displays': [
             {'id': 'd1', 'name': 'SAMSUNG', 'current': true},
@@ -54,7 +69,7 @@ class FakePc {
             return;
           }
           tokens[msg['deviceId'] as String] = 'tok-${msg['deviceId']}';
-          send({'type': 'pair_ok', 'token': tokens[msg['deviceId']], 'pcId': pcId, 'pcName': 'FAKE-PC'});
+          send({'type': 'pair_ok', 'token': tokens[msg['deviceId']], 'pcId': pcId, 'pcName': 'FAKE-PC', 'wake': wake});
         case 'auth':
           final token = tokens[msg['deviceId']];
           if (token == null || LineConnection.proof(token, nonce) != msg['proof']) {
@@ -62,7 +77,7 @@ class FakePc {
             return;
           }
           device = msg['deviceId'] as String;
-          send({'type': 'auth_ok', 'pcName': 'FAKE-PC'});
+          send({'type': 'auth_ok', 'pcName': 'FAKE-PC', 'wake': wake});
           send({'type': 'status', 'mode': mode, 'busy': false, 'error': null});
         case 'get_devices':
           if (device == null) return;
@@ -70,6 +85,14 @@ class FakePc {
         case 'set_audio':
           if (device == null) return;
           audio = msg['id'] as String;
+          sendDevices();
+        case 'set_microphone':
+          if (device == null) return;
+          mic = msg['id'] as String;
+          sendDevices();
+        case 'set_communications':
+          if (device == null) return;
+          comms = msg['id'] as String;
           sendDevices();
         case 'set_mode':
           if (device == null) return;
@@ -83,8 +106,8 @@ class FakePc {
   Future<void> stop() => server.close();
 }
 
-Future<void> waitFor(bool Function() condition) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 5));
+Future<void> waitFor(bool Function() condition, {Duration timeout = const Duration(seconds: 5)}) async {
+  final deadline = DateTime.now().add(timeout);
   while (!condition()) {
     if (DateTime.now().isAfter(deadline)) throw TimeoutException('condición no cumplida');
     await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -111,6 +134,7 @@ void main() {
     expect(saved.id, 'pc-1');
     expect(saved.name, 'FAKE-PC');
     expect(storage.pcs.single.token, 'tok-${storage.deviceId}');
+    expect(storage.pcs.single.wake.single.mac, 'AA:BB:CC:DD:EE:FF');
 
     final conn = PcConnection(saved, storage)..start();
     await waitFor(() => conn.status == ConnectionStatus.connected && conn.mode == PcMode.pc);
@@ -124,6 +148,15 @@ void main() {
     expect(conn.audio.firstWhere((o) => o.current).id, 'tv');
     conn.setAudio('hp');
     await waitFor(() => conn.audio.firstWhere((o) => o.current).id == 'hp');
+
+    // Micrófono y comunicaciones (protocolo 4)
+    expect(conn.microphones.firstWhere((o) => o.current).id, 'webcam');
+    conn.setMicrophone('headset');
+    await waitFor(() => conn.microphones.firstWhere((o) => o.current).id == 'headset');
+    conn.setCommunications('hp');
+    await waitFor(() => conn.communications.firstWhere((o) => o.current).id == 'hp');
+    expect(pc.audio, 'hp');
+    expect(pc.comms, 'hp');
 
     conn.dispose();
     await pc.stop();
@@ -150,6 +183,55 @@ void main() {
 
     final conn = PcConnection(fake, storage)..start();
     await waitFor(() => conn.status == ConnectionStatus.unauthorized);
+    conn.dispose();
+    await pc.stop();
+  });
+
+  test('guarda los datos de encendido al conectar con un PC que ya estaba emparejado', () async {
+    final pc = FakePc();
+    await pc.start();
+    final storage = await AppStorage.load();
+    pc.tokens[storage.deviceId] = 'tok';
+    final old = SavedPc(id: 'pc-1', name: 'FAKE-PC', hosts: ['127.0.0.1'], port: pc.port, token: 'tok');
+    expect(old.canWake, isFalse);
+
+    final conn = PcConnection(old, storage)..start();
+    await waitFor(() => conn.status == ConnectionStatus.connected && conn.pc.canWake);
+    expect(storage.pcs.single.wake.single.broadcast, '127.255.255.255');
+    await waitFor(() => conn.audio.length == 2); // que el PC falso termine de responder antes de cerrar
+    conn.dispose();
+    await pc.stop();
+  });
+
+  test('enciende el PC y entra en modo consola cuando responde', () async {
+    // Puerto libre en el que todavía no escucha nadie: el PC está «apagado».
+    final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final port = probe.port;
+    await probe.close();
+
+    final storage = await AppStorage.load();
+    final saved = SavedPc(
+      id: 'pc-1',
+      name: 'FAKE-PC',
+      hosts: ['127.0.0.1'],
+      port: port,
+      token: 'tok',
+      wake: WakeTarget.listFromJson(FakePc.wake),
+    );
+    final conn = PcConnection(saved, storage)..start();
+    await waitFor(() => conn.status == ConnectionStatus.offline, timeout: const Duration(seconds: 15));
+
+    await conn.wake(thenMode: PcMode.console);
+    expect(conn.waking, isTrue);
+
+    final pc = FakePc(bindPort: port);
+    await pc.start();
+    pc.tokens[storage.deviceId] = 'tok';
+
+    await waitFor(() => conn.mode == PcMode.console && !conn.busy, timeout: const Duration(seconds: 20));
+    expect(conn.waking, isFalse);
+    expect(pc.mode, 'console');
+    await waitFor(() => conn.audio.length == 2);
     conn.dispose();
     await pc.stop();
   });

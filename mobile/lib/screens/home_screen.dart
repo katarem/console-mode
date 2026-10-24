@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/models.dart';
 import '../services/storage.dart';
 import '../services/updater.dart';
+import '../services/wake_on_lan.dart';
 import 'control_screen.dart';
 import 'discover_screen.dart';
 import 'pairing_screen.dart';
@@ -157,10 +158,12 @@ class _HomeScreenState extends State<HomeScreen> {
               subtitle: Text('${pc.hosts.first}:${pc.port}'),
               trailing: PopupMenuButton<String>(
                 onSelected: (v) {
+                  if (v == 'wake') _wake(pc);
                   if (v == 'remove') _removePc(pc);
                 },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'remove', child: Text('Olvidar este PC')),
+                itemBuilder: (_) => [
+                  if (pc.canWake) const PopupMenuItem(value: 'wake', child: Text('Encender el PC')),
+                  const PopupMenuItem(value: 'remove', child: Text('Olvidar este PC')),
                 ],
               ),
               onTap: () => _open(pc),
@@ -175,6 +178,16 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => ControlScreen(pc: pc, storage: storage)),
     );
     if (mounted) setState(() {});
+  }
+
+  Future<void> _wake(SavedPc pc) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await WakeOnLan.wake(pc.wake);
+      messenger.showSnackBar(SnackBar(content: Text('Señal de encendido enviada a «${pc.name}».')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('No se pudo enviar la señal de encendido: $e')));
+    }
   }
 
   Future<void> _addPc() async {

@@ -81,6 +81,9 @@ public sealed class DiscoveryResponder : IDisposable
     }
 }
 
+/// <summary>Tarjeta de red a la que el móvil envía el paquete mágico de Wake-on-LAN.</summary>
+public sealed record WakeTarget(string Mac, string Broadcast);
+
 public static class NetworkInfo
 {
     /// <summary>IPv4 locales utilizables, primero las de interfaces con puerta de enlace (la LAN "real").</summary>
@@ -115,6 +118,56 @@ public static class NetworkInfo
 
         return result.OrderByDescending(r => r.HasGateway).Select(r => r.Ip).Distinct().ToList();
     }
+
+    /// <summary>
+    /// MAC y dirección de broadcast de cada tarjeta de red física conectada, para que el móvil pueda encender el PC
+    /// con Wake-on-LAN. Primero las de cable y las que tienen puerta de enlace.
+    /// </summary>
+    public static IReadOnlyList<WakeTarget> GetWakeTargets()
+    {
+        var result = new List<(WakeTarget Target, bool Wired, bool HasGateway)>();
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.OperationalStatus != OperationalStatus.Up ||
+                nic.NetworkInterfaceType is not (NetworkInterfaceType.Ethernet or NetworkInterfaceType.GigabitEthernet or
+                    NetworkInterfaceType.FastEthernetT or NetworkInterfaceType.FastEthernetFx or NetworkInterfaceType.Wireless80211) ||
+                VirtualAdapter.IsMatch(nic.Description))
+            {
+                continue;
+            }
+
+            var mac = nic.GetPhysicalAddress().GetAddressBytes();
+            if (mac.Length != 6 || mac.All(b => b == 0))
+            {
+                continue;
+            }
+
+            var props = nic.GetIPProperties();
+            var hasGateway = props.GatewayAddresses.Any(g => g.Address.AddressFamily == AddressFamily.InterNetwork &&
+                                                            !g.Address.Equals(IPAddress.Any));
+            foreach (var addr in props.UnicastAddresses)
+            {
+                if (addr.Address.AddressFamily != AddressFamily.InterNetwork || IPAddress.IsLoopback(addr.Address) ||
+                    addr.Address.ToString().StartsWith("169.254."))
+                {
+                    continue;
+                }
+                var ip = addr.Address.GetAddressBytes();
+                var mask = addr.IPv4Mask.GetAddressBytes();
+                var broadcast = new IPAddress(ip.Select((b, i) => (byte)(b | ~mask[i])).ToArray());
+                result.Add((new WakeTarget(string.Join(":", mac.Select(b => b.ToString("X2"))), broadcast.ToString()),
+                    nic.NetworkInterfaceType != NetworkInterfaceType.Wireless80211, hasGateway));
+                break;
+            }
+        }
+
+        return result.OrderByDescending(r => r.Wired).ThenByDescending(r => r.HasGateway).Select(r => r.Target)
+            .DistinctBy(t => t.Mac).ToList();
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex VirtualAdapter = new(
+        "virtual|hyper-v|vmware|virtualbox|vpn|tap-|wireguard|tailscale|zerotier|wan miniport|bluetooth",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     /// <summary>Contenido del QR: consolemode://pair?h=ip1,ip2&amp;p=puerto&amp;id=pcId&amp;n=nombre</summary>
     public static string PairingUri(AppSettings settings)

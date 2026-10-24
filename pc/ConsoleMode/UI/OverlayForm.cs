@@ -1,3 +1,4 @@
+using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using ConsoleMode.Core;
 using ConsoleMode.Native;
@@ -5,45 +6,85 @@ using ConsoleMode.Native;
 namespace ConsoleMode.UI;
 
 /// <summary>
-/// Overlay para el mando en la esquina inferior derecha: cambia la salida de audio y la pantalla principal
-/// al momento. Estos cambios son temporales: no se guardan en los perfiles de los modos.
+/// Overlay para el mando en la esquina inferior derecha: cambia de modo, de salida de audio, de micrófono, de salida de
+/// comunicaciones y de pantalla principal, y ajusta o silencia el sonido y el micrófono. Los cambios son temporales: no
+/// se guardan en los perfiles de los modos.
 /// </summary>
 /// <remarks>
+/// Cada opción muestra solo lo elegido ahora; al pulsar A, el overlay pasa al centro de la pantalla con la lista de
+/// opciones y, al elegir (o con B), vuelve a la esquina. Es la misma ventana, así que el foco no se pierde por el camino.
 /// Se dibuja entero a mano (sin controles hijos) con el escalado (DPI) de la pantalla donde aparece.
 /// Con controles normales, WinForms los reescalaba por su cuenta al llegar a una TV 4K al 200 % y el texto
 /// salía pequeño, o al doble y cortado, hasta que se reconstruían.
 /// </remarks>
 public sealed class OverlayForm : Form
 {
-    private static readonly Color Background = Color.FromArgb(28, 28, 36);
-    private static readonly Color Border = Color.FromArgb(60, 60, 76);
-    private static readonly Color Accent = Color.FromArgb(76, 70, 229);
-    private static readonly Color TextColor = Color.FromArgb(235, 235, 245);
-    private static readonly Color MutedColor = Color.FromArgb(150, 150, 170);
+    private static readonly Color Background = Color.FromArgb(22, 22, 30);
+    private static readonly Color Border = Color.FromArgb(58, 58, 76);
+    private static readonly Color Surface = Color.FromArgb(34, 34, 46);
+    private static readonly Color Accent = Color.FromArgb(88, 80, 236);
+    private static readonly Color TextColor = Color.FromArgb(240, 240, 248);
+    private static readonly Color MutedColor = Color.FromArgb(150, 150, 172);
     private static readonly Color ErrorColor = Color.FromArgb(255, 120, 120);
+    private static readonly Color TrackColor = Color.FromArgb(70, 70, 92);
+
+    // Color de cada tipo de opción (fondo del icono).
+    private static readonly Color ConsoleColor = Color.FromArgb(34, 197, 94);
+    private static readonly Color PcColor = Color.FromArgb(245, 158, 11);
+    private static readonly Color AudioColor = Color.FromArgb(59, 130, 246);
+    private static readonly Color MicColor = Color.FromArgb(236, 72, 153);
+    private static readonly Color CommsColor = Color.FromArgb(139, 92, 246);
+    private static readonly Color DisplayColor = Color.FromArgb(20, 184, 166);
+    private static readonly Color MutedOnColor = Color.FromArgb(239, 68, 68);
+    private static readonly Color MutedOffColor = Color.FromArgb(52, 52, 68);
+
+    // Iconos de Segoe Fluent Icons (Windows 11) o Segoe MDL2 Assets (Windows 10): mismos códigos en las dos.
+    private const string GlyphVolume = "";
+    private const string GlyphMute = "";
+    private const string GlyphMic = "";
+    private const string GlyphHeadset = "";
+    private const string GlyphDisplay = "";
+    private const string GlyphGame = "";
+    private const string GlyphPc = "";
+    private const string GlyphChevron = "";
+    private const string GlyphCheck = "";
+
     private static readonly TimeSpan IdleClose = TimeSpan.FromSeconds(20);
+    private const int VolumeStep = 5;
 
     private const TextFormatFlags TextFlags =
         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
         TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
+    private const TextFormatFlags CenterFlags =
+        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
+        TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
 
-    private enum ItemKind
+    private enum RowKind
     {
-        SwitchToPc,
+        SwitchMode,
+        MuteToggles,
+        Picker,
+        Volume,
+    }
+
+    private enum PickerKind
+    {
         Audio,
+        Microphone,
+        Communications,
         Display,
     }
 
-    private sealed record Item(ItemKind Kind, string Id, string Name, bool IsCurrent);
-
-    /// <summary>Una línea del overlay ya colocada: cabecera de sección o fila seleccionable.</summary>
-    /// <remarks>Las líneas de la lista (<see cref="Scrolls"/>) usan coordenadas de contenido: se dibujan desplazadas.</remarks>
-    private sealed record Line(Rectangle Bounds, string Text, Font Font, Color Color, int RowIndex = -1, bool Scrolls = false);
+    /// <summary>Una opción de la vista principal.</summary>
+    private sealed record Row(RowKind Kind, string Key, string Title, string Value, string Glyph, Color Color,
+        PickerKind Picker = default, AudioFlow Flow = default, AppMode Target = default);
 
     private readonly System.Windows.Forms.Timer _idleTimer;
     private readonly System.Windows.Forms.Timer _focusTimer = new() { Interval = 100 };
+    private readonly System.Windows.Forms.Timer _volumeTimer = new() { Interval = 1000 };
     private ForegroundWatcher? _foregroundWatcher;
     private readonly System.Diagnostics.Stopwatch _focusClock = new();
+    private readonly System.Diagnostics.Stopwatch _openClock = System.Diagnostics.Stopwatch.StartNew();
     private readonly IntPtr _previousForeground;
     private readonly ModeSwitcher _switcher;
     private readonly Func<bool> _inputHeld;
@@ -53,21 +94,44 @@ public sealed class OverlayForm : Form
     private int _releasedPolls;
     private bool _closing;
     private bool _switchingToPc;
-    private readonly List<Item> _items = new();
-    private readonly List<Line> _lines = new();
     private Fonts? _fonts;
     private string _status = "";
     private bool _statusIsError;
     private int _dpi;
-    private Rectangle _viewport;
-    private int _scroll;
-    private int _scrollMax;
     private bool _focusLost;
     private bool _focusFailureLogged;
     private long _lastPadActionAt;
-    private int _selected;
     private bool _busy;
     private string? _targetDisplayGdiName;
+
+    // Datos
+    private readonly List<Row> _rows = new();
+    private IReadOnlyList<QuickOption> _audio = Array.Empty<QuickOption>();
+    private IReadOnlyList<QuickOption> _mics = Array.Empty<QuickOption>();
+    private IReadOnlyList<QuickOption> _comms = Array.Empty<QuickOption>();
+    private IReadOnlyList<QuickOption> _displays = Array.Empty<QuickOption>();
+    private VolumeInfo? _outVolume;
+    private VolumeInfo? _inVolume;
+
+    // Vista principal: fila elegida y, en la fila de silenciar, cuál de los dos botones (0 = sonido, 1 = micrófono).
+    private int _selected;
+    private int _toggleIndex;
+
+    // Vista de lista (en el centro de la pantalla): qué se elige, opciones y opción marcada.
+    private PickerKind? _picker;
+    private IReadOnlyList<QuickOption> _options = Array.Empty<QuickOption>();
+    private int _optionSelected;
+
+    // Disposición calculada por Relayout. Los elementos de la lista usan coordenadas de contenido: se dibujan
+    // desplazados _scroll píxeles dentro de _viewport.
+    private readonly List<Rectangle> _itemRects = new();
+    private Rectangle _viewport;
+    private int _scroll;
+    private int _scrollMax;
+    private Rectangle _titleRect;
+    private Rectangle _subtitleRect;
+    private Rectangle _statusRect;
+    private Rectangle _hintRect;
 
     /// <param name="inputHeld">Si el mando tiene algo pulsado: el overlay no devuelve el foco hasta que se suelta.</param>
     public OverlayForm(Icon icon, ModeSwitcher switcher, Func<bool> inputHeld)
@@ -92,12 +156,34 @@ public sealed class OverlayForm : Form
         _idleTimer.Tick += (_, _) => CloseWhenReleased();
         _releaseTimer.Tick += (_, _) => CheckReleased();
         _focusTimer.Tick += (_, _) => EnsureFocus();
+        _volumeTimer.Tick += (_, _) => RefreshVolumes();
 
         // Se calcula con el escalado de la pantalla de destino y se coloca ya en su esquina antes de mostrarse.
         _dpi = DpiOf(TargetArea());
-        LoadItems();
+        LoadData();
         Relayout();
-        PlaceInCorner();
+        Place();
+    }
+
+    /// <summary>
+    /// Crea y dibuja un overlay sin mostrarlo, para que la primera vez que se abra de verdad no tarde: si tarda, Big
+    /// Picture sigue con el foco mientras tanto y recibe las mismas pulsaciones que luego mueven el overlay.
+    /// </summary>
+    public static void Warmup(Icon icon, ModeSwitcher switcher)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            using var form = new OverlayForm(icon, switcher, () => false);
+            form.CreateControl();
+            using var bitmap = new Bitmap(Math.Max(1, form.Width), Math.Max(1, form.Height));
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+            Log.Info($"Overlay precargado en {clock.ElapsedMilliseconds} ms");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("No se pudo precargar el overlay", ex);
+        }
     }
 
     /// <summary>Acción que llega del mando (XInput).</summary>
@@ -117,16 +203,43 @@ public sealed class OverlayForm : Form
         _idleTimer.Stop();
         _idleTimer.Start();
 
+        if (_picker != null)
+        {
+            switch (action)
+            {
+                case PadAction.Up:
+                    SelectOption(_optionSelected - 1);
+                    break;
+                case PadAction.Down:
+                    SelectOption(_optionSelected + 1);
+                    break;
+                case PadAction.Accept:
+                    _ = ApplyOptionAsync();
+                    break;
+                case PadAction.Back:
+                    ClosePicker();
+                    break;
+                case PadAction.ToggleOverlay:
+                    CloseWhenReleased();
+                    break;
+            }
+            return;
+        }
+
         switch (action)
         {
             case PadAction.Up:
-                Select(_selected - 1);
+                SelectRow(_selected - 1);
                 break;
             case PadAction.Down:
-                Select(_selected + 1);
+                SelectRow(_selected + 1);
+                break;
+            case PadAction.Left:
+            case PadAction.Right:
+                Adjust(action == PadAction.Left ? -1 : 1);
                 break;
             case PadAction.Accept:
-                _ = ApplySelectedAsync();
+                ActivateRow();
                 break;
             case PadAction.Back:
             case PadAction.ToggleOverlay:
@@ -148,9 +261,11 @@ public sealed class OverlayForm : Form
             _dpi = DeviceDpi;
             Relayout();
         }
-        PlaceInCorner();
+        Place();
         GrabFocus();
+        Log.Info($"Overlay: abierto en {_openClock.ElapsedMilliseconds} ms");
         _idleTimer.Start();
+        _volumeTimer.Start();
     }
 
     protected override void WndProc(ref Message m)
@@ -163,7 +278,7 @@ public sealed class OverlayForm : Form
             {
                 _dpi = newDpi;
                 Relayout();
-                PlaceInCorner();
+                Place();
             }
             m.Result = IntPtr.Zero;
             return;
@@ -194,6 +309,8 @@ public sealed class OverlayForm : Form
         {
             Keys.Up => PadAction.Up,
             Keys.Down => PadAction.Down,
+            Keys.Left => PadAction.Left,
+            Keys.Right => PadAction.Right,
             Keys.Enter or Keys.Space => PadAction.Accept,
             Keys.Escape or Keys.Back => PadAction.Back,
             _ => null,
@@ -206,15 +323,44 @@ public sealed class OverlayForm : Form
         base.OnKeyDown(e);
     }
 
+    protected override bool IsInputKey(Keys keyData) =>
+        keyData is Keys.Left or Keys.Right or Keys.Up or Keys.Down || base.IsInputKey(keyData);
+
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
-        var line = _lines.FirstOrDefault(l => l.RowIndex >= 0 && _viewport.Contains(e.Location) && OnScreen(l).Contains(e.Location));
-        if (line != null)
+        if (!_viewport.Contains(e.Location))
         {
-            Select(line.RowIndex);
-            HandleAction(PadAction.Accept);
+            return;
         }
+        var index = _itemRects.FindIndex(r => OnScreen(r).Contains(e.Location));
+        if (index < 0)
+        {
+            return;
+        }
+
+        if (_picker != null)
+        {
+            SelectOption(index);
+            HandleAction(PadAction.Accept);
+            return;
+        }
+
+        SelectRow(index);
+        var row = _rows[index];
+        var bounds = OnScreen(_itemRects[index]);
+        if (row.Kind == RowKind.MuteToggles)
+        {
+            _toggleIndex = e.X < bounds.Left + bounds.Width / 2 ? 0 : 1;
+        }
+        else if (row.Kind == RowKind.Volume && VolumeTrack(bounds) is { } track && e.X >= track.Left - Px(8))
+        {
+            // Clic en la barra: el volumen pasa a ese punto.
+            var percent = (int)Math.Round(Math.Clamp((e.X - track.Left) / (double)track.Width, 0, 1) * 100);
+            SetVolume(row.Flow, percent);
+            return;
+        }
+        HandleAction(PadAction.Accept);
     }
 
     protected override void OnDeactivate(EventArgs e)
@@ -233,6 +379,7 @@ public sealed class OverlayForm : Form
         _idleTimer.Dispose();
         _focusTimer.Dispose();
         _releaseTimer.Dispose();
+        _volumeTimer.Dispose();
         _switcher.StateChanged -= OnSwitcherStateChanged;
         _foregroundWatcher?.Dispose();
         _foregroundWatcher = null;
@@ -249,6 +396,10 @@ public sealed class OverlayForm : Form
         base.Dispose(disposing);
         if (disposing)
         {
+            _idleTimer.Dispose();
+            _focusTimer.Dispose();
+            _releaseTimer.Dispose();
+            _volumeTimer.Dispose();
             _fonts?.Dispose();
             _fonts = null;
         }
@@ -258,71 +409,131 @@ public sealed class OverlayForm : Form
     // Datos
     // ------------------------------------------------------------------
 
-    private void LoadItems()
+    private void LoadData()
     {
-        var selectedKey = _selected < _items.Count ? (_items[_selected].Kind, _items[_selected].Id) : default;
-
-        _items.Clear();
-        var state = _switcher.State;
-        if (state.Mode == AppMode.Console && !state.Busy)
-        {
-            _items.Add(new Item(ItemKind.SwitchToPc, "pc", "Volver a modo PC", false));
-        }
-        _items.AddRange(QuickSwitch.AudioOptions().Select(a => new Item(ItemKind.Audio, a.Id, a.Name, a.IsCurrent)));
-        _items.AddRange(QuickSwitch.DisplayOptions().Select(d => new Item(ItemKind.Display, d.Id, d.Name, d.IsCurrent)));
-
-        var index = _items.FindIndex(i => (i.Kind, i.Id) == selectedKey);
-        if (index < 0)
-        {
-            // Se empieza en el audio actual (nunca en «Volver a modo PC», para que un A sin querer no cambie de modo).
-            index = _items.FindIndex(i => i.Kind == ItemKind.Audio && i.IsCurrent);
-            if (index < 0)
-            {
-                index = Math.Max(0, _items.FindIndex(i => i.Kind != ItemKind.SwitchToPc));
-            }
-        }
-        _selected = Math.Clamp(index, 0, Math.Max(0, _items.Count - 1));
+        _audio = QuickSwitch.AudioOptions();
+        _mics = QuickSwitch.MicrophoneOptions();
+        _comms = QuickSwitch.CommunicationsOptions();
+        _displays = QuickSwitch.DisplayOptions();
+        _outVolume = _audio.Count > 0 ? QuickSwitch.Volume(AudioFlow.Output) : null;
+        _inVolume = _mics.Count > 0 ? QuickSwitch.Volume(AudioFlow.Input) : null;
+        BuildRows();
     }
 
-    private void Select(int index)
+    private void BuildRows()
     {
-        if (_items.Count == 0)
+        var selectedKey = _selected < _rows.Count ? _rows[_selected].Key : null;
+        _rows.Clear();
+
+        static string Current(IReadOnlyList<QuickOption> options) =>
+            options.FirstOrDefault(o => o.IsCurrent)?.Name ?? (options.Count == 0 ? "No hay ninguno" : "Sin elegir");
+
+        var state = _switcher.State;
+        if (!state.Busy)
+        {
+            _rows.Add(state.Mode == AppMode.Console
+                ? new Row(RowKind.SwitchMode, "mode", "Volver a modo PC", "Cierra Big Picture y aplica el modo PC", GlyphPc, PcColor,
+                    Target: AppMode.Pc)
+                : new Row(RowKind.SwitchMode, "mode", "Ir a modo consola", "Abre Big Picture en la pantalla de la consola", GlyphGame,
+                    ConsoleColor, Target: AppMode.Console));
+        }
+        if (_outVolume != null || _inVolume != null)
+        {
+            _rows.Add(new Row(RowKind.MuteToggles, "mute", "", "", GlyphMute, MutedOnColor));
+        }
+        _rows.Add(new Row(RowKind.Picker, "audio", "Salida de audio", Current(_audio), GlyphVolume, AudioColor, PickerKind.Audio));
+        if (_outVolume != null)
+        {
+            _rows.Add(new Row(RowKind.Volume, "volume-out", "Volumen", "", GlyphVolume, AudioColor, Flow: AudioFlow.Output));
+        }
+        if (_mics.Count > 0)
+        {
+            _rows.Add(new Row(RowKind.Picker, "mic", "Micrófono", Current(_mics), GlyphMic, MicColor, PickerKind.Microphone));
+        }
+        if (_inVolume != null)
+        {
+            _rows.Add(new Row(RowKind.Volume, "volume-in", "Volumen del micrófono", "", GlyphMic, MicColor, Flow: AudioFlow.Input));
+        }
+        if (_comms.Count > 0)
+        {
+            _rows.Add(new Row(RowKind.Picker, "comms", "Comunicaciones (Discord, Teams…)", Current(_comms), GlyphHeadset, CommsColor,
+                PickerKind.Communications));
+        }
+        _rows.Add(new Row(RowKind.Picker, "display", "Pantalla principal", Current(_displays), GlyphDisplay, DisplayColor,
+            PickerKind.Display));
+
+        var index = _rows.FindIndex(r => r.Key == selectedKey);
+        if (index < 0)
+        {
+            // Se empieza en la salida de audio (nunca en el cambio de modo, para que un A sin querer no cambie de modo).
+            index = Math.Max(0, _rows.FindIndex(r => r.Key == "audio"));
+        }
+        _selected = Math.Clamp(index, 0, Math.Max(0, _rows.Count - 1));
+    }
+
+    /// <summary>El volumen también se puede cambiar con el teclado o desde Windows: se vuelve a leer cada segundo.</summary>
+    private void RefreshVolumes()
+    {
+        if (_picker != null || _busy || _closing)
         {
             return;
         }
-        _selected = Math.Clamp(index, 0, _items.Count - 1);
+        var outVolume = _outVolume != null ? QuickSwitch.Volume(AudioFlow.Output) : null;
+        var inVolume = _inVolume != null ? QuickSwitch.Volume(AudioFlow.Input) : null;
+        if (outVolume != _outVolume || inVolume != _inVolume)
+        {
+            _outVolume = outVolume ?? _outVolume;
+            _inVolume = inVolume ?? _inVolume;
+            Invalidate();
+        }
+    }
+
+    private void SelectRow(int index)
+    {
+        if (_rows.Count == 0)
+        {
+            return;
+        }
+        _selected = Math.Clamp(index, 0, _rows.Count - 1);
         ScrollToSelected();
         Invalidate();
     }
 
-    /// <summary>Desplaza la lista para que la fila elegida (y la cabecera de su sección, si es la primera) se vea.</summary>
+    private void SelectOption(int index)
+    {
+        if (_options.Count == 0)
+        {
+            return;
+        }
+        _optionSelected = Math.Clamp(index, 0, _options.Count - 1);
+        ScrollToSelected();
+        Invalidate();
+    }
+
+    private int SelectedItem => _picker != null ? _optionSelected : _selected;
+
+    /// <summary>Desplaza la lista para que el elemento elegido se vea.</summary>
     private void ScrollToSelected()
     {
-        var index = _lines.FindIndex(l => l.RowIndex == _selected);
-        if (index < 0 || _viewport.Height <= 0)
+        var index = SelectedItem;
+        if (index < 0 || index >= _itemRects.Count || _viewport.Height <= 0)
         {
             return;
         }
 
-        var top = _lines[index].Bounds.Top;
-        if (index > 0 && _lines[index - 1].Scrolls && _lines[index - 1].RowIndex < 0)
+        var item = _itemRects[index];
+        if (item.Top - _viewport.Top < _scroll)
         {
-            top = _lines[index - 1].Bounds.Top;
+            _scroll = item.Top - _viewport.Top;
         }
-        var bottom = _lines[index].Bounds.Bottom;
-
-        if (top - _viewport.Top < _scroll)
+        else if (item.Bottom - _viewport.Top > _scroll + _viewport.Height)
         {
-            _scroll = top - _viewport.Top;
-        }
-        else if (bottom - _viewport.Top > _scroll + _viewport.Height)
-        {
-            _scroll = bottom - _viewport.Top - _viewport.Height;
+            _scroll = item.Bottom - _viewport.Top - _viewport.Height;
         }
         _scroll = Math.Clamp(_scroll, 0, _scrollMax);
     }
 
-    private Rectangle OnScreen(Line line) => line.Scrolls ? line.Bounds with { Y = line.Bounds.Y - _scroll } : line.Bounds;
+    private Rectangle OnScreen(Rectangle item) => item with { Y = item.Y - _scroll };
 
     private void SetStatus(string text, bool error = false)
     {
@@ -332,52 +543,214 @@ public sealed class OverlayForm : Form
         if (sizeChanged)
         {
             Relayout();
-            PlaceInCorner();
+            Place();
         }
         Invalidate();
     }
 
-    private async Task ApplySelectedAsync()
+    // ------------------------------------------------------------------
+    // Acciones
+    // ------------------------------------------------------------------
+
+    /// <summary>Izquierda / derecha: volumen en las barras y botón en la fila de silenciar.</summary>
+    private void Adjust(int direction)
     {
-        if (_items.Count == 0)
+        if (_selected >= _rows.Count)
         {
             return;
         }
-
-        var item = _items[_selected];
-        if (item.Kind == ItemKind.SwitchToPc)
+        var row = _rows[_selected];
+        if (row.Kind == RowKind.MuteToggles)
         {
-            // El overlay se queda delante (con el foco) hasta que Big Picture se ha cerrado. Si se cerrase antes,
-            // Big Picture recuperaría el foco con la A aún pulsada y lanzaría el juego que tuviera seleccionado.
-            Log.Info("Overlay: volver a modo PC");
-            _busy = true;
-            _switchingToPc = true;
-            _idleTimer.Stop();
-            SetStatus("Volviendo a modo PC…");
-            _switcher.StateChanged += OnSwitcherStateChanged;
-            _ = _switcher.SwitchAsync(AppMode.Pc);
-            return;
+            _toggleIndex = Math.Clamp(_toggleIndex + direction, 0, 1);
+            Invalidate();
         }
+        else if (row.Kind == RowKind.Volume && VolumeOf(row.Flow) is { } volume)
+        {
+            SetVolume(row.Flow, volume.Percent + direction * VolumeStep);
+        }
+    }
 
-        _busy = true;
-        SetStatus("Aplicando…");
+    private VolumeInfo? VolumeOf(AudioFlow flow) => flow == AudioFlow.Input ? _inVolume : _outVolume;
+
+    private void SetVolume(AudioFlow flow, int percent)
+    {
+        percent = Math.Clamp((int)Math.Round(percent / (double)VolumeStep) * VolumeStep, 0, 100);
         try
         {
-            if (item.Kind == ItemKind.Audio)
+            QuickSwitch.SetVolume(flow, percent);
+            var muted = VolumeOf(flow)?.Muted ?? false;
+            if (flow == AudioFlow.Input)
             {
-                await Task.Run(() => QuickSwitch.SetAudio(item.Id, "Overlay"));
-                SetStatus($"Audio: {item.Name}");
+                _inVolume = new VolumeInfo(percent, muted);
             }
             else
             {
-                await Task.Run(() => QuickSwitch.SetDisplay(item.Id, "Overlay"));
-                _targetDisplayGdiName = DisplayManager.Find(item.Id)?.GdiName;
-                SetStatus($"Pantalla principal: {item.Name}");
+                _outVolume = new VolumeInfo(percent, muted);
+            }
+            Invalidate();
+        }
+        catch (Exception ex)
+        {
+            SetStatus(ex.Message, error: true);
+            Log.Error("Overlay: no se pudo cambiar el volumen", ex);
+        }
+    }
+
+    private void ToggleMute(AudioFlow flow)
+    {
+        if (VolumeOf(flow) is not { } volume)
+        {
+            return;
+        }
+        try
+        {
+            QuickSwitch.SetMuted(flow, !volume.Muted);
+            var updated = volume with { Muted = !volume.Muted };
+            if (flow == AudioFlow.Input)
+            {
+                _inVolume = updated;
+                SetStatus(updated.Muted ? "Micrófono silenciado" : "Micrófono activado");
+            }
+            else
+            {
+                _outVolume = updated;
+                SetStatus(updated.Muted ? "Sonido silenciado" : "Sonido activado");
             }
         }
         catch (Exception ex)
         {
             SetStatus(ex.Message, error: true);
+            Log.Error("Overlay: no se pudo silenciar", ex);
+        }
+    }
+
+    private void ActivateRow()
+    {
+        if (_rows.Count == 0)
+        {
+            return;
+        }
+
+        var row = _rows[_selected];
+        switch (row.Kind)
+        {
+            case RowKind.MuteToggles:
+                ToggleMute(_toggleIndex == 0 ? AudioFlow.Output : AudioFlow.Input);
+                return;
+            case RowKind.Volume:
+                ToggleMute(row.Flow);
+                return;
+            case RowKind.Picker:
+                OpenPicker(row.Picker);
+                return;
+        }
+
+        if (row.Target == AppMode.Console)
+        {
+            // Primero se cierra el overlay (esperando a que se suelte la A) y se devuelve el foco; después se cambia
+            // de modo, para que Big Picture se abra delante sin pelear por el foco con el overlay.
+            Log.Info("Overlay: ir a modo consola");
+            _busy = true;
+            _idleTimer.Stop();
+            SetStatus("Pasando a modo consola…");
+            FormClosed += (_, _) => _ = _switcher.SwitchAsync(AppMode.Console);
+            CloseWhenReleased();
+            return;
+        }
+
+        // El overlay se queda delante (con el foco) hasta que Big Picture se ha cerrado. Si se cerrase antes,
+        // Big Picture recuperaría el foco con la A aún pulsada y lanzaría el juego que tuviera seleccionado.
+        Log.Info("Overlay: volver a modo PC");
+        _busy = true;
+        _switchingToPc = true;
+        _idleTimer.Stop();
+        SetStatus("Volviendo a modo PC…");
+        _switcher.StateChanged += OnSwitcherStateChanged;
+        _ = _switcher.SwitchAsync(AppMode.Pc);
+    }
+
+    private void OpenPicker(PickerKind picker)
+    {
+        _options = picker switch
+        {
+            PickerKind.Audio => _audio,
+            PickerKind.Microphone => _mics,
+            PickerKind.Communications => _comms,
+            _ => _displays,
+        };
+        if (_options.Count == 0)
+        {
+            return;
+        }
+        _picker = picker;
+        _optionSelected = Math.Max(0, _options.ToList().FindIndex(o => o.IsCurrent));
+        _scroll = 0;
+        _status = "";
+        Relayout();
+        Place();
+    }
+
+    private void ClosePicker()
+    {
+        _picker = null;
+        _scroll = 0;
+        Relayout();
+        Place();
+        GrabFocus();
+    }
+
+    private async Task ApplyOptionAsync()
+    {
+        if (_picker is not { } picker || _options.Count == 0)
+        {
+            return;
+        }
+        var option = _options[_optionSelected];
+        if (option.IsCurrent)
+        {
+            ClosePicker();
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await Task.Run(() =>
+            {
+                switch (picker)
+                {
+                    case PickerKind.Audio:
+                        QuickSwitch.SetAudio(option.Id, "Overlay");
+                        break;
+                    case PickerKind.Microphone:
+                        QuickSwitch.SetMicrophone(option.Id, "Overlay");
+                        break;
+                    case PickerKind.Communications:
+                        QuickSwitch.SetCommunications(option.Id, "Overlay");
+                        break;
+                    default:
+                        QuickSwitch.SetDisplay(option.Id, "Overlay");
+                        break;
+                }
+            });
+            if (picker == PickerKind.Display)
+            {
+                _targetDisplayGdiName = DisplayManager.Find(option.Id)?.GdiName;
+            }
+            _status = picker switch
+            {
+                PickerKind.Audio => $"Audio: {option.Name}",
+                PickerKind.Microphone => $"Micrófono: {option.Name}",
+                PickerKind.Communications => $"Comunicaciones: {option.Name}",
+                _ => $"Pantalla principal: {option.Name}",
+            };
+            _statusIsError = false;
+        }
+        catch (Exception ex)
+        {
+            _status = ex.Message;
+            _statusIsError = true;
             Log.Error("Overlay: no se pudo aplicar el cambio", ex);
         }
         finally
@@ -391,116 +764,114 @@ public sealed class OverlayForm : Form
         }
 
         // Si la pantalla elegida tiene otro escalado, se recalcula con el suyo.
-        var dpi = DpiOf(TargetArea());
-        if (dpi != _dpi)
-        {
-            _dpi = dpi;
-        }
-        LoadItems();
-        Relayout();
-        PlaceInCorner();
-        GrabFocus();
+        _dpi = DpiOf(TargetArea());
+        LoadData();
+        ClosePicker();
     }
 
     // ------------------------------------------------------------------
-    // Disposición y dibujo
+    // Disposición
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Calcula la posición de cada línea y el tamaño de la ventana con el DPI actual. Si la lista no cabe en la
-    /// pantalla, se queda con la altura disponible y se desplaza siguiendo a la fila elegida.
+    /// Calcula la posición de cada elemento y el tamaño de la ventana con el DPI actual. Si la lista no cabe en la
+    /// pantalla, se queda con la altura disponible y se desplaza siguiendo al elemento elegido.
     /// </summary>
     private void Relayout()
     {
         _fonts?.Dispose();
         _fonts = new Fonts(_dpi);
         var f = _fonts;
-        _lines.Clear();
+        _itemRects.Clear();
 
-        var padX = Px(24);
+        var padX = Px(22);
         var padY = Px(20);
-        var rowPadX = Px(14);
-        var rowHeight = Px(46);
-        var bulletWidth = TextRenderer.MeasureText("●  ", f.Row, Size.Empty, TextFlags).Width;
+        var gap = Px(8);
 
-        // Ancho: el del texto más largo, entre 420 y 680 px lógicos.
-        var widest = new[]
-            {
-                TextRenderer.MeasureText("Console Mode", f.Title, Size.Empty, TextFlags).Width,
-                TextRenderer.MeasureText(Subtitle, f.Small, Size.Empty, TextFlags).Width,
-                TextRenderer.MeasureText(Hint, f.Small, Size.Empty, TextFlags).Width,
-            }
-            .Concat(_items.Select(i => bulletWidth + TextRenderer.MeasureText(i.Name, f.Row, Size.Empty, TextFlags).Width + rowPadX * 2))
-            .Max();
-        var contentWidth = Math.Clamp(widest, Px(420), Px(680));
-
-        // Las fuentes Semibold miden algo menos de lo que ocupan: se deja un margen para que no se monten.
-        int LineHeight(Font font) => TextRenderer.MeasureText("ÁgÑy", font, Size.Empty, TextFlags).Height + Px(4);
+        int contentWidth;
+        int itemHeight;
+        int count;
+        if (_picker == null)
+        {
+            contentWidth = Px(470);
+            itemHeight = Math.Max(Px(62), f.Small.Height + f.Row.Height + Px(20));
+            count = _rows.Count;
+        }
+        else
+        {
+            var widest = _options.Select(o => TextRenderer.MeasureText(o.Name, f.Row, Size.Empty, TextFlags).Width)
+                .DefaultIfEmpty(0).Max() + Px(110);
+            contentWidth = Math.Clamp(widest, Px(440), Px(760));
+            itemHeight = Math.Max(Px(52), f.Row.Height + Px(24));
+            count = _options.Count;
+        }
 
         var y = padY;
-        void Add(string text, Font font, Color color, int height, int marginTop = 0, int rowIndex = -1, bool scrolls = false)
-        {
-            y += marginTop;
-            _lines.Add(new Line(new Rectangle(padX, y, contentWidth, height), text, font, color, rowIndex, scrolls));
-            y += height;
-        }
+        _titleRect = new Rectangle(padX, y, contentWidth, f.Title.Height + Px(4));
+        y = _titleRect.Bottom;
+        _subtitleRect = new Rectangle(padX, y, contentWidth, f.Small.Height + Px(2));
+        y = _subtitleRect.Bottom + Px(14);
 
-        // ----- Cabecera fija -----
-        Add("Console Mode", f.Title, TextColor, LineHeight(f.Title));
-        Add(Subtitle, f.Small, MutedColor, LineHeight(f.Small));
-        y += Px(6);
-
-        // ----- Lista (se desplaza) -----
         var listTop = y;
-        var sections = new[]
+        for (var i = 0; i < count; i++)
         {
-            (ItemKind.SwitchToPc, "🎮  Modo consola activo"),
-            (ItemKind.Audio, "🔊  Audio"),
-            (ItemKind.Display, "🖥  Pantalla principal"),
-        };
-        var firstSection = true;
-        foreach (var (kind, title) in sections)
-        {
-            if (!_items.Any(i => i.Kind == kind))
-            {
-                continue;
-            }
-            Add(title, f.Section, MutedColor, LineHeight(f.Section) + Px(4), firstSection ? 0 : Px(14), scrolls: true);
-            firstSection = false;
-            for (var i = 0; i < _items.Count; i++)
-            {
-                if (_items[i].Kind == kind)
-                {
-                    Add(_items[i].Name, f.Row, TextColor, rowHeight, Px(2), i, scrolls: true);
-                }
-            }
+            _itemRects.Add(new Rectangle(padX, y, contentWidth, itemHeight));
+            y += itemHeight + gap;
         }
-        var listHeight = y - listTop;
+        var listHeight = Math.Max(0, y - gap - listTop);
 
-        // ----- Pie fijo -----
-        var footerHeight = Px(14) + (_status.Length > 0 ? LineHeight(f.Small) + Px(4) : 0) + LineHeight(f.Small);
+        var footerHeight = Px(16) + (_status.Length > 0 ? f.Small.Height + Px(8) : 0) + Px(24);
         var maxClientHeight = TargetArea().Height - 2 * Px(40);
-        var viewportHeight = Math.Max(rowHeight * 2, Math.Min(listHeight, maxClientHeight - listTop - footerHeight - padY));
+        var viewportHeight = Math.Max(itemHeight * 2, Math.Min(listHeight, maxClientHeight - listTop - footerHeight - padY));
         _viewport = new Rectangle(0, listTop, contentWidth + padX * 2, viewportHeight);
         _scrollMax = Math.Max(0, listHeight - viewportHeight);
 
-        y = listTop + viewportHeight + Px(14);
+        y = listTop + viewportHeight + Px(16);
         if (_status.Length > 0)
         {
-            Add(_status, f.Small, MutedColor, LineHeight(f.Small), 0);
-            y += Px(4);
+            _statusRect = new Rectangle(padX, y, contentWidth, f.Small.Height);
+            y = _statusRect.Bottom + Px(8);
         }
-        Add(Hint, f.Small, MutedColor, LineHeight(f.Small));
+        else
+        {
+            _statusRect = Rectangle.Empty;
+        }
+        _hintRect = new Rectangle(padX, y, contentWidth, Px(24));
+        y = _hintRect.Bottom;
 
         ClientSize = new Size(contentWidth + padX * 2, y + padY);
         ScrollToSelected();
         Invalidate();
     }
 
+    /// <summary>Barra de volumen dentro de una fila (en coordenadas de pantalla).</summary>
+    private Rectangle? VolumeTrack(Rectangle row)
+    {
+        if (_fonts == null)
+        {
+            return null;
+        }
+        var text = TextArea(row);
+        var top = row.Top + Px(10) + _fonts.Small.Height + Px(10);
+        return new Rectangle(text.Left, top, text.Width - Px(4), Px(8));
+    }
+
+    /// <summary>Zona de texto de una fila, a la derecha del icono.</summary>
+    private Rectangle TextArea(Rectangle row)
+    {
+        var left = row.Left + Px(14) + Px(38) + Px(14);
+        return Rectangle.FromLTRB(left, row.Top, row.Right - Px(16), row.Bottom);
+    }
+
+    // ------------------------------------------------------------------
+    // Dibujo
+    // ------------------------------------------------------------------
+
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
         g.Clear(Background);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
         using (var border = new Pen(Border, Math.Max(1, Px(1))))
         {
             g.DrawRectangle(border, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
@@ -509,90 +880,343 @@ public sealed class OverlayForm : Form
         {
             return;
         }
+        var f = _fonts;
 
-        var bulletWidth = TextRenderer.MeasureText("●  ", _fonts.Row, Size.Empty, TextFlags).Width;
-        var rowPadX = Px(14);
-
-        foreach (var line in _lines)
+        // ----- Cabecera -----
+        if (_picker is { } picker)
         {
-            var bounds = OnScreen(line);
-            if (line.Scrolls)
-            {
-                if (bounds.Bottom <= _viewport.Top || bounds.Top >= _viewport.Bottom)
-                {
-                    continue;
-                }
-                g.SetClip(_viewport);
-            }
+            var (title, glyph, color) = PickerInfo(picker);
+            var chip = new Rectangle(_titleRect.Left, _titleRect.Top + (_titleRect.Height - Px(30)) / 2, Px(30), Px(30));
+            DrawChip(g, chip, glyph, color, f.IconSmall);
+            TextRenderer.DrawText(g, title, f.Title, Rectangle.FromLTRB(chip.Right + Px(12), _titleRect.Top, _titleRect.Right, _titleRect.Bottom),
+                TextColor, TextFlags | TextFormatFlags.EndEllipsis);
+            TextRenderer.DrawText(g, "Elige una opción", f.Small, _subtitleRect, MutedColor, TextFlags);
+        }
+        else
+        {
+            TextRenderer.DrawText(g, "Console Mode", f.Title, _titleRect, TextColor, TextFlags);
+            DrawModeBadge(g, f);
+            TextRenderer.DrawText(g, "Cambios temporales: no se guardan en tus modos", f.Small, _subtitleRect, MutedColor,
+                TextFlags | TextFormatFlags.EndEllipsis);
+        }
 
-            if (line.RowIndex < 0)
+        // ----- Lista -----
+        g.SetClip(_viewport);
+        for (var i = 0; i < _itemRects.Count; i++)
+        {
+            var bounds = OnScreen(_itemRects[i]);
+            if (bounds.Bottom <= _viewport.Top || bounds.Top >= _viewport.Bottom)
             {
-                var color = !line.Scrolls && line.Text == _status && _statusIsError ? ErrorColor : line.Color;
-                TextRenderer.DrawText(g, line.Text, line.Font, bounds, color, TextFlags | TextFormatFlags.EndEllipsis);
+                continue;
+            }
+            if (_picker != null)
+            {
+                DrawOption(g, f, _options[i], bounds, i == _optionSelected);
             }
             else
             {
-                var item = _items[line.RowIndex];
-                var selected = line.RowIndex == _selected;
-                if (selected)
-                {
-                    using var brush = new SolidBrush(Accent);
-                    g.FillRectangle(brush, bounds);
-                }
-                var fore = selected ? Color.White : TextColor;
-                var bulletRect = new Rectangle(bounds.X + rowPadX, bounds.Y, bulletWidth, bounds.Height);
-                var textRect = Rectangle.FromLTRB(bulletRect.Right, bounds.Y, bounds.Right - rowPadX, bounds.Bottom);
-                var bullet = item.Kind == ItemKind.SwitchToPc ? "↩" : item.IsCurrent ? "●" : "○";
-                TextRenderer.DrawText(g, bullet, line.Font, bulletRect, fore, TextFlags);
-                TextRenderer.DrawText(g, item.Name, line.Font, textRect, fore, TextFlags | TextFormatFlags.EndEllipsis);
-            }
-
-            if (line.Scrolls)
-            {
-                g.ResetClip();
+                DrawRow(g, f, _rows[i], bounds, i == _selected);
             }
         }
+        g.ResetClip();
 
         // Flechas cuando hay más opciones por encima o por debajo.
-        var arrowRect = new Rectangle(_viewport.Right - Px(24) - Px(30), 0, Px(30), Px(24));
+        var arrowRect = new Rectangle(_viewport.Right - Px(24) - Px(30), 0, Px(30), Px(16));
         if (_scroll > 0)
         {
-            TextRenderer.DrawText(g, "▲", _fonts.Small, arrowRect with { Y = _viewport.Top - Px(24) }, MutedColor,
+            TextRenderer.DrawText(g, "▲", f.Small, arrowRect with { Y = _viewport.Top - Px(16) }, MutedColor,
                 TextFormatFlags.Right | TextFormatFlags.Bottom | TextFormatFlags.NoPadding);
         }
         if (_scroll < _scrollMax)
         {
-            TextRenderer.DrawText(g, "▼", _fonts.Small, arrowRect with { Y = _viewport.Bottom }, MutedColor,
+            TextRenderer.DrawText(g, "▼", f.Small, arrowRect with { Y = _viewport.Bottom }, MutedColor,
                 TextFormatFlags.Right | TextFormatFlags.Top | TextFormatFlags.NoPadding);
+        }
+
+        // ----- Pie -----
+        if (_status.Length > 0)
+        {
+            TextRenderer.DrawText(g, _status, f.Small, _statusRect, _statusIsError ? ErrorColor : MutedColor,
+                TextFlags | TextFormatFlags.EndEllipsis);
+        }
+        DrawHints(g, f);
+    }
+
+    private void DrawRow(Graphics g, Fonts f, Row row, Rectangle bounds, bool selected)
+    {
+        if (row.Kind == RowKind.MuteToggles)
+        {
+            DrawMuteToggles(g, f, bounds, selected);
+            return;
+        }
+
+        FillRound(g, bounds, Px(12), selected ? Accent : Surface);
+        var chip = new Rectangle(bounds.Left + Px(14), bounds.Top + (bounds.Height - Px(38)) / 2, Px(38), Px(38));
+        var text = TextArea(bounds);
+        var titleColor = selected ? Color.FromArgb(225, 225, 255) : MutedColor;
+
+        switch (row.Kind)
+        {
+            case RowKind.SwitchMode:
+                DrawChip(g, chip, row.Glyph, row.Color, f.Icon);
+                var middle = bounds.Top + bounds.Height / 2;
+                TextRenderer.DrawText(g, row.Title, f.RowBold, Rectangle.FromLTRB(text.Left, middle - f.RowBold.Height, text.Right, middle + Px(1)),
+                    TextColor, TextFlags | TextFormatFlags.EndEllipsis);
+                TextRenderer.DrawText(g, row.Value, f.Small, Rectangle.FromLTRB(text.Left, middle + Px(2), text.Right, middle + Px(2) + f.Small.Height),
+                    titleColor, TextFlags | TextFormatFlags.EndEllipsis);
+                break;
+
+            case RowKind.Picker:
+                DrawChip(g, chip, row.Glyph, row.Color, f.Icon);
+                var top = bounds.Top + (bounds.Height - f.Small.Height - f.Row.Height - Px(2)) / 2;
+                var chevronWidth = Px(22);
+                TextRenderer.DrawText(g, row.Title, f.Small, new Rectangle(text.Left, top, text.Width - chevronWidth, f.Small.Height),
+                    titleColor, TextFlags | TextFormatFlags.EndEllipsis);
+                TextRenderer.DrawText(g, row.Value, f.Row, new Rectangle(text.Left, top + f.Small.Height + Px(2), text.Width - chevronWidth, f.Row.Height),
+                    TextColor, TextFlags | TextFormatFlags.EndEllipsis);
+                TextRenderer.DrawText(g, GlyphChevron, f.IconSmall, Rectangle.FromLTRB(text.Right - chevronWidth, bounds.Top, text.Right, bounds.Bottom),
+                    selected ? TextColor : MutedColor, CenterFlags);
+                break;
+
+            case RowKind.Volume:
+                var volume = VolumeOf(row.Flow) ?? new VolumeInfo(0, false);
+                DrawChip(g, chip, volume.Muted && row.Flow == AudioFlow.Output ? GlyphMute : row.Glyph,
+                    volume.Muted ? MutedOffColor : row.Color, f.Icon, slashed: volume.Muted && row.Flow == AudioFlow.Input);
+                var titleRect = new Rectangle(text.Left, bounds.Top + Px(10), text.Width, f.Small.Height);
+                TextRenderer.DrawText(g, row.Title, f.Small, titleRect, titleColor, TextFlags | TextFormatFlags.EndEllipsis);
+                TextRenderer.DrawText(g, volume.Muted ? "Silenciado" : $"{volume.Percent} %", f.SmallBold, titleRect,
+                    volume.Muted ? ErrorColor : TextColor, TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+                if (VolumeTrack(bounds) is { } track)
+                {
+                    FillRound(g, track, track.Height / 2, selected ? Color.FromArgb(120, 255, 255, 255) : TrackColor);
+                    var filled = track with { Width = (int)Math.Round(track.Width * volume.Percent / 100.0) };
+                    if (filled.Width > 0)
+                    {
+                        FillRound(g, filled, track.Height / 2, volume.Muted ? MutedColor : selected ? Color.White : row.Color);
+                    }
+                    var knob = Px(16);
+                    var knobRect = new Rectangle(track.Left + filled.Width - knob / 2, track.Top + track.Height / 2 - knob / 2, knob, knob);
+                    using var knobBrush = new SolidBrush(selected ? Color.White : volume.Muted ? MutedColor : row.Color);
+                    g.FillEllipse(knobBrush, knobRect);
+                }
+                break;
         }
     }
 
-    private const string Subtitle = "Cambios temporales: no se guardan en tus modos";
-    private const string Hint = "Ⓐ Elegir     Ⓑ Cerrar     ↑↓ Moverse";
+    /// <summary>Dos botones, uno junto a otro: silenciar el sonido y silenciar el micrófono.</summary>
+    private void DrawMuteToggles(Graphics g, Fonts f, Rectangle bounds, bool selected)
+    {
+        var gap = Px(10);
+        var width = (bounds.Width - gap) / 2;
+        var buttons = new[]
+        {
+            (Rect: new Rectangle(bounds.Left, bounds.Top, width, bounds.Height), Volume: _outVolume, Input: false),
+            (Rect: new Rectangle(bounds.Left + width + gap, bounds.Top, bounds.Width - width - gap, bounds.Height), Volume: _inVolume, Input: true),
+        };
+        for (var i = 0; i < buttons.Length; i++)
+        {
+            var (rect, volume, input) = buttons[i];
+            var muted = volume?.Muted == true;
+            var focused = selected && _toggleIndex == i;
+            FillRound(g, rect, Px(12), muted ? Color.FromArgb(70, 239, 68, 68) : Surface);
+            if (focused)
+            {
+                using var pen = new Pen(Accent, Px(3));
+                using var path = RoundRect(Rectangle.Inflate(rect, -Px(1), -Px(1)), Px(11));
+                g.DrawPath(pen, path);
+            }
+
+            var chip = new Rectangle(rect.Left + Px(12), rect.Top + (rect.Height - Px(34)) / 2, Px(34), Px(34));
+            if (input)
+            {
+                DrawChip(g, chip, GlyphMic, muted ? MutedOnColor : MicColor, f.IconSmall, slashed: muted);
+            }
+            else
+            {
+                DrawChip(g, chip, muted ? GlyphMute : GlyphVolume, muted ? MutedOnColor : AudioColor, f.IconSmall);
+            }
+
+            var label = volume == null ? (input ? "Sin micrófono" : "Sin sonido")
+                : input ? (muted ? "Micro silenciado" : "Silenciar micro")
+                : muted ? "Sonido silenciado" : "Silenciar sonido";
+            TextRenderer.DrawText(g, label, f.SmallBold, Rectangle.FromLTRB(chip.Right + Px(10), rect.Top, rect.Right - Px(8), rect.Bottom),
+                volume == null ? MutedColor : muted ? Color.FromArgb(255, 200, 200) : TextColor, TextFlags | TextFormatFlags.EndEllipsis);
+        }
+    }
+
+    private void DrawOption(Graphics g, Fonts f, QuickOption option, Rectangle bounds, bool selected)
+    {
+        FillRound(g, bounds, Px(12), selected ? Accent : Surface);
+        var color = PickerInfo(_picker ?? PickerKind.Audio).Color;
+
+        // Botón de opción: anillo y, si es la actual, punto dentro.
+        var size = Px(20);
+        var radio = new Rectangle(bounds.Left + Px(16), bounds.Top + (bounds.Height - size) / 2, size, size);
+        using (var ring = new Pen(option.IsCurrent ? (selected ? Color.White : color) : MutedColor, Px(2)))
+        {
+            g.DrawEllipse(ring, radio);
+        }
+        if (option.IsCurrent)
+        {
+            using var dot = new SolidBrush(selected ? Color.White : color);
+            g.FillEllipse(dot, Rectangle.Inflate(radio, -Px(5), -Px(5)));
+        }
+
+        var textRect = Rectangle.FromLTRB(radio.Right + Px(14), bounds.Top, bounds.Right - Px(16), bounds.Bottom);
+        if (option.IsCurrent)
+        {
+            var tagWidth = TextRenderer.MeasureText("Actual", f.SmallBold, Size.Empty, TextFlags).Width + Px(20);
+            var tag = new Rectangle(textRect.Right - tagWidth, bounds.Top + (bounds.Height - Px(24)) / 2, tagWidth, Px(24));
+            FillRound(g, tag, Px(12), selected ? Color.FromArgb(60, 255, 255, 255) : Color.FromArgb(50, color));
+            TextRenderer.DrawText(g, "Actual", f.SmallBold, tag, selected ? Color.White : color, CenterFlags);
+            textRect = Rectangle.FromLTRB(textRect.Left, textRect.Top, tag.Left - Px(10), textRect.Bottom);
+        }
+        TextRenderer.DrawText(g, option.Name, f.Row, textRect, TextColor, TextFlags | TextFormatFlags.EndEllipsis);
+    }
+
+    /// <summary>Etiqueta con el modo actual, a la derecha del título.</summary>
+    private void DrawModeBadge(Graphics g, Fonts f)
+    {
+        var state = _switcher.State;
+        var (text, color, glyph) = state.Busy ? ("Cambiando…", MutedColor, GlyphGame)
+            : state.Mode == AppMode.Console ? ("Modo consola", ConsoleColor, GlyphGame)
+            : ("Modo PC", PcColor, GlyphPc);
+        var textWidth = TextRenderer.MeasureText(text, f.SmallBold, Size.Empty, TextFlags).Width;
+        var iconWidth = Px(18);
+        var width = Px(12) + iconWidth + Px(6) + textWidth + Px(14);
+        var height = Px(28);
+        var badge = new Rectangle(_titleRect.Right - width, _titleRect.Top + (_titleRect.Height - height) / 2, width, height);
+        FillRound(g, badge, height / 2, Color.FromArgb(45, color));
+        TextRenderer.DrawText(g, glyph, f.IconTiny, new Rectangle(badge.Left + Px(12), badge.Top, iconWidth, badge.Height), color, CenterFlags);
+        TextRenderer.DrawText(g, text, f.SmallBold, Rectangle.FromLTRB(badge.Left + Px(12) + iconWidth + Px(6), badge.Top, badge.Right, badge.Bottom),
+            color, TextFlags);
+    }
+
+    /// <summary>Ayuda del pie con los botones del mando dibujados con sus colores (A verde, B rojo).</summary>
+    private void DrawHints(Graphics g, Fonts f)
+    {
+        var hints = new List<(string? Button, Color Color, string Text)>();
+        if (_picker != null)
+        {
+            hints.Add(("A", Color.FromArgb(16, 124, 16), "Elegir"));
+            hints.Add(("B", Color.FromArgb(200, 40, 40), "Volver"));
+            hints.Add((null, Color.Empty, "↑↓  Moverse"));
+        }
+        else
+        {
+            var row = _selected < _rows.Count ? _rows[_selected] : null;
+            hints.Add(("A", Color.FromArgb(16, 124, 16), row?.Kind switch
+            {
+                RowKind.Volume => VolumeOf(row.Flow)?.Muted == true ? "Activar" : "Silenciar",
+                RowKind.MuteToggles => "Activar / silenciar",
+                _ => "Elegir",
+            }));
+            hints.Add(("B", Color.FromArgb(200, 40, 40), "Cerrar"));
+            hints.Add((null, Color.Empty, row?.Kind is RowKind.Volume ? "←→  Volumen" : row?.Kind is RowKind.MuteToggles ? "←→  Cambiar" : "↑↓  Moverse"));
+        }
+
+        var x = _hintRect.Left;
+        var circle = Px(22);
+        foreach (var (button, color, text) in hints)
+        {
+            if (button != null)
+            {
+                var c = new Rectangle(x, _hintRect.Top + (_hintRect.Height - circle) / 2, circle, circle);
+                using (var brush = new SolidBrush(color))
+                {
+                    g.FillEllipse(brush, c);
+                }
+                TextRenderer.DrawText(g, button, f.Button, c, Color.White, CenterFlags);
+                x = c.Right + Px(8);
+            }
+            var width = TextRenderer.MeasureText(text, f.Small, Size.Empty, TextFlags).Width;
+            TextRenderer.DrawText(g, text, f.Small, new Rectangle(x, _hintRect.Top, width + Px(2), _hintRect.Height), MutedColor, TextFlags);
+            x += width + Px(22);
+        }
+    }
+
+    /// <summary>Icono sobre un cuadrado redondeado de color. Con <paramref name="slashed"/> se tacha (micrófono silenciado).</summary>
+    private void DrawChip(Graphics g, Rectangle rect, string glyph, Color color, Font font, bool slashed = false)
+    {
+        FillRound(g, rect, rect.Width / 4, color);
+        TextRenderer.DrawText(g, glyph, font, rect, Color.White, CenterFlags);
+        if (slashed)
+        {
+            using var pen = new Pen(Color.White, Math.Max(2, Px(2))) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            var inset = rect.Width / 4;
+            g.DrawLine(pen, rect.Left + inset, rect.Top + inset, rect.Right - inset, rect.Bottom - inset);
+        }
+    }
+
+    private static (string Title, string Glyph, Color Color) PickerInfo(PickerKind picker) => picker switch
+    {
+        PickerKind.Audio => ("Salida de audio", GlyphVolume, AudioColor),
+        PickerKind.Microphone => ("Micrófono", GlyphMic, MicColor),
+        PickerKind.Communications => ("Comunicaciones", GlyphHeadset, CommsColor),
+        _ => ("Pantalla principal", GlyphDisplay, DisplayColor),
+    };
+
+    private static void FillRound(Graphics g, Rectangle rect, int radius, Color color)
+    {
+        using var brush = new SolidBrush(color);
+        using var path = RoundRect(rect, radius);
+        g.FillPath(brush, path);
+    }
+
+    private static GraphicsPath RoundRect(Rectangle rect, int radius)
+    {
+        var path = new GraphicsPath();
+        var d = Math.Max(1, Math.Min(radius * 2, Math.Min(rect.Width, rect.Height)));
+        path.AddArc(rect.Left, rect.Top, d, d, 180, 90);
+        path.AddArc(rect.Right - d, rect.Top, d, d, 270, 90);
+        path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+        path.AddArc(rect.Left, rect.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
 
     /// <summary>Fuentes en píxeles (1 pt = 1/72") para el DPI dado: WinForms no las reescala.</summary>
     private sealed class Fonts : IDisposable
     {
+        private static readonly string IconFamily = IsInstalled("Segoe Fluent Icons") ? "Segoe Fluent Icons" : "Segoe MDL2 Assets";
+
         public Fonts(int dpi)
         {
-            Font Make(string family, float points) => new(family, points * dpi / 72f, FontStyle.Regular, GraphicsUnit.Pixel);
-            Title = Make("Segoe UI Semibold", 17f);
-            Section = Make("Segoe UI Semibold", 12f);
-            Row = Make("Segoe UI", 15f);
-            Small = Make("Segoe UI", 11f);
+            Font Make(string family, float points, FontStyle style = FontStyle.Regular) =>
+                new(family, points * dpi / 72f, style, GraphicsUnit.Pixel);
+            Title = Make("Segoe UI Semibold", 16f);
+            Row = Make("Segoe UI", 13.5f);
+            RowBold = Make("Segoe UI Semibold", 13.5f);
+            Small = Make("Segoe UI", 10f);
+            SmallBold = Make("Segoe UI Semibold", 10f);
+            Button = Make("Segoe UI", 9f, FontStyle.Bold);
+            Icon = Make(IconFamily, 13f);
+            IconSmall = Make(IconFamily, 11f);
+            IconTiny = Make(IconFamily, 9f);
         }
 
         public Font Title { get; }
-        public Font Section { get; }
         public Font Row { get; }
+        public Font RowBold { get; }
         public Font Small { get; }
+        public Font SmallBold { get; }
+        public Font Button { get; }
+        public Font Icon { get; }
+        public Font IconSmall { get; }
+        public Font IconTiny { get; }
+
+        private static bool IsInstalled(string family)
+        {
+            using var font = new Font(family, 10f);
+            return string.Equals(font.Name, family, StringComparison.OrdinalIgnoreCase);
+        }
 
         public void Dispose()
         {
-            Title.Dispose();
-            Section.Dispose();
-            Row.Dispose();
-            Small.Dispose();
+            foreach (var font in new[] { Title, Row, RowBold, Small, SmallBold, Button, Icon, IconSmall, IconTiny })
+            {
+                font.Dispose();
+            }
         }
     }
 
@@ -780,10 +1404,15 @@ public sealed class OverlayForm : Form
             : Screen.FromPoint(Cursor.Position).Bounds;
     }
 
-    /// <summary>Esquina inferior derecha de la pantalla de destino.</summary>
-    private void PlaceInCorner()
+    /// <summary>Vista principal en la esquina inferior derecha de la pantalla de destino; la lista, en el centro.</summary>
+    private void Place()
     {
         var area = TargetArea();
+        if (_picker != null)
+        {
+            Location = new Point(area.Left + (area.Width - Width) / 2, area.Top + (area.Height - Height) / 2);
+            return;
+        }
         var margin = Px(40);
         Location = new Point(area.Right - Width - margin, area.Bottom - Height - margin);
     }

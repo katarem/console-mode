@@ -58,7 +58,7 @@ class Discovery {
           }
         });
 
-        final targets = await _broadcastAddresses();
+        final targets = await broadcastAddresses();
         void send() {
           for (final target in targets) {
             try {
@@ -92,7 +92,7 @@ class Discovery {
   }
 
   /// 255.255.255.255 más el broadcast de cada red local (suponiendo /24, lo habitual en casa).
-  static Future<List<InternetAddress>> _broadcastAddresses() async {
+  static Future<List<InternetAddress>> broadcastAddresses() async {
     final result = <String>{'255.255.255.255'};
     try {
       final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);

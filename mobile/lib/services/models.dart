@@ -1,3 +1,28 @@
+/// Tarjeta de red del PC a la que se envía el paquete mágico de Wake-on-LAN.
+class WakeTarget {
+  const WakeTarget({required this.mac, required this.broadcast});
+
+  /// MAC en formato `AA:BB:CC:DD:EE:FF`.
+  final String mac;
+
+  /// Dirección de broadcast de su red, p. ej. `192.168.1.255`.
+  final String broadcast;
+
+  Map<String, dynamic> toJson() => {'mac': mac, 'broadcast': broadcast};
+
+  static List<WakeTarget> listFromJson(Object? json) => [
+        for (final item in (json as List? ?? const []).whereType<Map>())
+          if (item['mac'] is String && item['broadcast'] is String)
+            WakeTarget(mac: item['mac'] as String, broadcast: item['broadcast'] as String),
+      ];
+
+  @override
+  bool operator ==(Object other) => other is WakeTarget && other.mac == mac && other.broadcast == broadcast;
+
+  @override
+  int get hashCode => Object.hash(mac, broadcast);
+}
+
 /// PC guardado en el móvil después de emparejarlo.
 class SavedPc {
   SavedPc({
@@ -6,6 +31,7 @@ class SavedPc {
     required this.hosts,
     required this.port,
     required this.token,
+    this.wake = const [],
   });
 
   final String id;
@@ -14,12 +40,18 @@ class SavedPc {
   final int port;
   final String token;
 
-  SavedPc copyWith({String? name, List<String>? hosts, int? port, String? token}) => SavedPc(
+  /// Datos para encenderlo con Wake-on-LAN (vacío si el PC tiene una versión sin esta función).
+  final List<WakeTarget> wake;
+
+  bool get canWake => wake.isNotEmpty;
+
+  SavedPc copyWith({String? name, List<String>? hosts, int? port, String? token, List<WakeTarget>? wake}) => SavedPc(
         id: id,
         name: name ?? this.name,
         hosts: hosts ?? this.hosts,
         port: port ?? this.port,
         token: token ?? this.token,
+        wake: wake ?? this.wake,
       );
 
   Map<String, dynamic> toJson() => {
@@ -28,6 +60,7 @@ class SavedPc {
         'hosts': hosts,
         'port': port,
         'token': token,
+        'wake': wake.map((w) => w.toJson()).toList(),
       };
 
   factory SavedPc.fromJson(Map<String, dynamic> json) => SavedPc(
@@ -36,6 +69,7 @@ class SavedPc {
         hosts: (json['hosts'] as List).cast<String>(),
         port: json['port'] as int,
         token: json['token'] as String,
+        wake: WakeTarget.listFromJson(json['wake']),
       );
 }
 

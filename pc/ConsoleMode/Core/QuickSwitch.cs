@@ -13,11 +13,17 @@ public static class QuickSwitch
     /// <summary>Se dispara (desde cualquier hilo) después de cambiar el audio o la pantalla.</summary>
     public static event Action? Changed;
 
-    public static IReadOnlyList<QuickOption> AudioOptions()
+    public static IReadOnlyList<QuickOption> AudioOptions() => AudioList(AudioManager.GetOutputDevices);
+
+    public static IReadOnlyList<QuickOption> MicrophoneOptions() => AudioList(AudioManager.GetInputDevices);
+
+    public static IReadOnlyList<QuickOption> CommunicationsOptions() => AudioList(AudioManager.GetCommunicationOutputs);
+
+    private static IReadOnlyList<QuickOption> AudioList(Func<IReadOnlyList<AudioDeviceInfo>> devices)
     {
         try
         {
-            return AudioManager.GetOutputDevices().Select(a => new QuickOption(a.Id, a.Name, a.IsDefault)).ToList();
+            return devices().Select(a => new QuickOption(a.Id, a.Name, a.IsDefault)).ToList();
         }
         catch (Exception ex)
         {
@@ -25,6 +31,24 @@ public static class QuickSwitch
             return Array.Empty<QuickOption>();
         }
     }
+
+    /// <summary>Volumen actual del sonido o del micrófono, o null si no hay dispositivo.</summary>
+    public static VolumeInfo? Volume(AudioFlow flow)
+    {
+        try
+        {
+            return AudioManager.GetVolume(flow);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("No se pudo leer el volumen", ex);
+            return null;
+        }
+    }
+
+    public static void SetVolume(AudioFlow flow, int percent) => AudioManager.SetVolume(flow, percent);
+
+    public static void SetMuted(AudioFlow flow, bool muted) => AudioManager.SetMuted(flow, muted);
 
     public static IReadOnlyList<QuickOption> DisplayOptions()
     {
@@ -43,6 +67,20 @@ public static class QuickSwitch
     {
         AudioManager.SetDefaultOutput(id);
         Log.Info($"{origin}: audio cambiado (temporal)");
+        Changed?.Invoke();
+    }
+
+    public static void SetMicrophone(string id, string origin)
+    {
+        AudioManager.SetDefaultInput(id);
+        Log.Info($"{origin}: micrófono cambiado (temporal)");
+        Changed?.Invoke();
+    }
+
+    public static void SetCommunications(string id, string origin)
+    {
+        AudioManager.SetCommunicationOutput(id);
+        Log.Info($"{origin}: salida de comunicaciones cambiada (temporal)");
         Changed?.Invoke();
     }
 

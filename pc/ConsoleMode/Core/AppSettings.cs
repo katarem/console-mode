@@ -25,7 +25,7 @@ public static class AppModeExtensions
     public static string ToDisplayName(this AppMode mode) => mode == AppMode.Console ? "Consola" : "PC";
 }
 
-/// <summary>Pantalla y salida de audio que se aplican al entrar en un modo.</summary>
+/// <summary>Pantalla y dispositivos de audio que se aplican al entrar en un modo.</summary>
 public sealed class ModeProfile
 {
     /// <summary>Identificador estable del monitor (ruta del dispositivo). Null = no cambiar.</summary>
@@ -35,6 +35,12 @@ public sealed class ModeProfile
     /// <summary>Id de endpoint de audio de Windows. Null = no cambiar.</summary>
     public string? AudioDeviceId { get; set; }
     public string? AudioDeviceName { get; set; }
+    /// <summary>Micrófono predeterminado (también el de comunicaciones). Null = no cambiar.</summary>
+    public string? MicrophoneId { get; set; }
+    public string? MicrophoneName { get; set; }
+    /// <summary>Salida de comunicaciones (Discord, Teams...), p. ej. unos auriculares. Null = no cambiar.</summary>
+    public string? CommunicationsId { get; set; }
+    public string? CommunicationsName { get; set; }
 }
 
 public sealed class TrustedDevice

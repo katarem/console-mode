@@ -99,6 +99,7 @@ class _StatusBanner extends StatelessWidget {
     final c = connection;
 
     final (IconData icon, String text, Color color) = switch (c.status) {
+      _ when c.waking => (Icons.power_settings_new, 'Encendiendo el PC…', scheme.tertiary),
       ConnectionStatus.connecting => (Icons.sync, 'Conectando…', scheme.tertiary),
       ConnectionStatus.connected => (
           Icons.check_circle,
@@ -123,13 +124,46 @@ class _StatusBanner extends StatelessWidget {
           const SizedBox(height: 12),
           Text(c.lastError!, textAlign: TextAlign.center, style: TextStyle(color: scheme.error)),
         ],
-        if (c.status == ConnectionStatus.offline) ...[
+        if (c.waking) ...[
+          const SizedBox(height: 16),
+          const SizedBox(width: 160, child: LinearProgressIndicator()),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
+          Text(
+            'Se ha enviado la señal de encendido. Windows puede tardar un poco en arrancar.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ] else if (c.status == ConnectionStatus.offline) ...[
+          const SizedBox(height: 16),
+          if (c.pc.canWake) ...[
+            FilledButton.icon(
+              onPressed: () => c.wake(thenMode: PcMode.console),
+              icon: const Icon(Icons.sports_esports),
+              label: const Text('Encender en modo consola'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: c.wake,
+              icon: const Icon(Icons.power_settings_new),
+              label: const Text('Solo encender'),
+            ),
+            const SizedBox(height: 8),
+          ],
+          TextButton.icon(
             onPressed: c.retryNow,
             icon: const Icon(Icons.refresh),
             label: const Text('Reintentar ahora'),
           ),
+          if (!c.pc.canWake)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Para encender el PC desde aquí, actualiza Console Mode en el PC (versión 1.5.0 o posterior) '
+                'y conéctate una vez con el PC encendido.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
         ],
       ],
     );
@@ -166,6 +200,29 @@ class _QuickSwitchCard extends StatelessWidget {
             enabled: c.audio.isNotEmpty && !c.busy,
             onTap: () => _pick(context, 'Salida de audio', c.audio, c.setAudio),
           ),
+          if (c.microphones.isNotEmpty)
+            ListTile(
+              leading: const Icon(Icons.mic_none_outlined),
+              title: const Text('Micrófono'),
+              subtitle: Text(currentName(c.microphones), maxLines: 1, overflow: TextOverflow.ellipsis),
+              trailing: const Icon(Icons.chevron_right),
+              enabled: !c.busy,
+              onTap: () => _pick(context, 'Micrófono', c.microphones, c.setMicrophone),
+            ),
+          if (c.communications.isNotEmpty)
+            ListTile(
+              leading: const Icon(Icons.headset_mic_outlined),
+              title: const Text('Comunicaciones'),
+              subtitle: Text(currentName(c.communications), maxLines: 1, overflow: TextOverflow.ellipsis),
+              trailing: const Icon(Icons.chevron_right),
+              enabled: !c.busy,
+              onTap: () => _pick(
+                context,
+                'Comunicaciones (Discord, Teams…)',
+                c.communications,
+                c.setCommunications,
+              ),
+            ),
           ListTile(
             leading: const Icon(Icons.monitor_outlined),
             title: const Text('Pantalla principal'),

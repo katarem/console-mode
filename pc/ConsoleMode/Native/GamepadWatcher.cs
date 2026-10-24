@@ -69,7 +69,7 @@ public sealed class GamepadWatcher : IDisposable
                     held |= pad.wButtons != 0 ||
                             Math.Abs((int)pad.sThumbLX) > StickHeldThreshold || Math.Abs((int)pad.sThumbLY) > StickHeldThreshold;
 
-                    foreach (var action in _navigators[i].Update(pad.wButtons, pad.sThumbLY, now, OverlayOpen))
+                    foreach (var action in _navigators[i].Update(pad.wButtons, pad.sThumbLX, pad.sThumbLY, now, OverlayOpen))
                     {
                         Action?.Invoke(action);
                     }
