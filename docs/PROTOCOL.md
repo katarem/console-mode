@@ -84,6 +84,16 @@ PC    → {"type":"devices",
 El PC envía `devices` a todos los móviles conectados cuando cambia el audio o la pantalla (desde un móvil, desde el
 overlay del mando o por un cambio de modo).
 
+### Suspender o apagar (protocolo 5)
+
+```
+móvil → {"type":"power","action":"sleep"|"shutdown"}
+PC    → {"type":"power_ok","action":"sleep"|"shutdown"}
+```
+
+El PC responde y, al segundo y medio, se suspende (`SetSuspendState`) o se apaga del todo (`shutdown /s /t 0`). Si
+no puede, envía `error` a los móviles conectados.
+
 ### Micrófono y comunicaciones (protocolo 4)
 
 `devices` incluye también los micrófonos (`current` = el predeterminado) y las salidas para comunicaciones

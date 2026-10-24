@@ -37,8 +37,9 @@ Tiene dos partes:
 - **Overlay con el mando**: mantén **View + Menú** durante 1 segundo en un mando Xbox para cambiar de modo, de audio,
   de micrófono o de pantalla, subir o bajar el volumen y silenciar el sonido o el micrófono desde el sofá (ver más
   abajo).
-- **Encender el PC desde el móvil** con Wake-on-LAN, y entrar directamente en modo consola. Console Mode prepara
-  Windows por ti (y lo deja como estaba si lo desactivas). Ver [Encender el PC a distancia](#encender-el-pc-a-distancia).
+- **Botón de encendido en el móvil**: enciende el PC con Wake-on-LAN y lo pone en el modo que elijas, o lo suspende o
+  apaga. Console Mode prepara Windows por ti (y lo deja como estaba si lo desactivas). Ver
+  [Encender el PC a distancia](#encender-el-pc-a-distancia).
 - **Cambio rápido desde el móvil**: debajo del interruptor puedes elegir la salida de audio, el micrófono, la salida de
   comunicaciones y la pantalla principal del PC al momento, sin cambiar la configuración de tus modos.
 - **Actualizaciones desde la app**, tanto en el PC como en Android.
@@ -151,9 +152,15 @@ Notas:
 
 ### Encender el PC a distancia
 
-Con el PC apagado o en suspensión, la app del móvil muestra **Encender en modo consola** y **Solo encender**. El
-móvil envía un «paquete mágico» de Wake-on-LAN por la red local, espera a que Console Mode responda (hasta 3 minutos)
-y, si lo has pedido, cambia a modo consola. También puedes enviar la señal desde el menú ⋮ de cada PC en la lista.
+La pantalla de cada PC en el móvil tiene un **botón de encendido**:
+
+- Con el PC apagado o en suspensión, lo **enciende**: envía un «paquete mágico» de Wake-on-LAN por la red local,
+  espera a que Console Mode responda (hasta 3 minutos) y lo pone en el modo elegido.
+- Con el PC encendido, lo **suspende** o lo **apaga** (pide confirmación).
+
+En el icono de ajustes (arriba a la derecha) eliges, para cada PC, **en qué modo se pone al encender** (Consola, PC o
+sin cambiar) y si el botón **suspende o apaga**. Suspender es más rápido y el PC se vuelve a encender con más
+fiabilidad. También puedes enviar la señal de encendido desde el menú ⋮ de cada PC en la lista.
 
 Para que funcione:
 
@@ -197,8 +204,10 @@ En la pestaña *Ajustes*:
 - **Mostrar icono en la bandeja del sistema**: si lo desactivas, la app sigue funcionando pero sin icono. Para volver
   a ver la ventana, ejecuta otra vez `ConsoleMode.exe`. No se abre una segunda copia: se muestra la ventana de la
   que ya está en marcha.
-- **Iniciar con Windows**: añade la app a `HKCU\…\Run` con el argumento `--background`, así que arranca sin abrir la
-  ventana.
+- **Iniciar con Windows**: crea la tarea programada «Console Mode (tu usuario)», que abre la app en segundo plano
+  (`--background`) nada más iniciar sesión. Es más rápido que la carpeta de inicio o `HKCU\…\Run`, que Windows abre
+  con retraso y uno detrás de otro, y así Console Mode está listo antes para cambiar de pantalla o atender al móvil.
+  Los primeros minutos funciona con prioridad alta. No necesita permisos de administrador.
 - **Salir de Console Mode**: cierra la app del todo (también está en el menú del icono).
 
 La configuración se guarda en `%APPDATA%\ConsoleMode\settings.json` y el registro en `console-mode.log`, en la misma

@@ -32,7 +32,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         _ = _ui.Handle;
 
         Settings = AppSettings.Load();
-        StartupManager.RefreshPathIfEnabled();
+        _ = Task.Run(StartupManager.RefreshPathIfEnabled); // usa schtasks: que no retrase el arranque
         AppIcon = LoadIcon();
 
         Switcher = new ModeSwitcher(Settings);
@@ -42,6 +42,8 @@ public sealed class TrayApplicationContext : ApplicationContext
         Server.DevicesChanged += () => RunOnUi(() => _form?.RefreshDevices());
         Server.RemoteModeRequested += (device, mode) =>
             RunOnUi(() => Notify($"{device} ha pedido el modo {mode.ToDisplayName()}"));
+        Server.RemotePowerRequested += (device, action) =>
+            RunOnUi(() => Notify($"{device} ha pedido {(action == "sleep" ? "suspender" : "apagar")} el PC"));
         try
         {
             Server.Start();

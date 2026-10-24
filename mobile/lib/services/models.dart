@@ -32,6 +32,8 @@ class SavedPc {
     required this.port,
     required this.token,
     this.wake = const [],
+    this.wakeMode = WakeMode.console,
+    this.powerOff = PowerOffAction.sleep,
   });
 
   final String id;
@@ -43,15 +45,32 @@ class SavedPc {
   /// Datos para encenderlo con Wake-on-LAN (vacío si el PC tiene una versión sin esta función).
   final List<WakeTarget> wake;
 
+  /// Modo en el que se pone el PC al encenderlo desde el móvil.
+  final WakeMode wakeMode;
+
+  /// Qué hace el botón de apagar.
+  final PowerOffAction powerOff;
+
   bool get canWake => wake.isNotEmpty;
 
-  SavedPc copyWith({String? name, List<String>? hosts, int? port, String? token, List<WakeTarget>? wake}) => SavedPc(
+  SavedPc copyWith({
+    String? name,
+    List<String>? hosts,
+    int? port,
+    String? token,
+    List<WakeTarget>? wake,
+    WakeMode? wakeMode,
+    PowerOffAction? powerOff,
+  }) =>
+      SavedPc(
         id: id,
         name: name ?? this.name,
         hosts: hosts ?? this.hosts,
         port: port ?? this.port,
         token: token ?? this.token,
         wake: wake ?? this.wake,
+        wakeMode: wakeMode ?? this.wakeMode,
+        powerOff: powerOff ?? this.powerOff,
       );
 
   Map<String, dynamic> toJson() => {
@@ -61,6 +80,8 @@ class SavedPc {
         'port': port,
         'token': token,
         'wake': wake.map((w) => w.toJson()).toList(),
+        'wakeMode': wakeMode.wire,
+        'powerOff': powerOff.wire,
       };
 
   factory SavedPc.fromJson(Map<String, dynamic> json) => SavedPc(
@@ -70,6 +91,8 @@ class SavedPc {
         port: json['port'] as int,
         token: json['token'] as String,
         wake: WakeTarget.listFromJson(json['wake']),
+        wakeMode: WakeMode.fromWire(json['wakeMode'] as String?),
+        powerOff: PowerOffAction.fromWire(json['powerOff'] as String?),
       );
 }
 
@@ -141,4 +164,36 @@ enum PcMode {
     }
     return null;
   }
+}
+
+/// Modo en el que se pone el PC después de encenderlo desde el móvil.
+enum WakeMode {
+  console('console', 'Consola', PcMode.console),
+  pc('pc', 'PC', PcMode.pc),
+  keep('keep', 'Sin cambiar', null);
+
+  const WakeMode(this.wire, this.label, this.mode);
+
+  final String wire;
+  final String label;
+
+  /// Modo que se pide al PC al conectar, o null para dejarlo como esté.
+  final PcMode? mode;
+
+  static WakeMode fromWire(String? value) => values.firstWhere((m) => m.wire == value, orElse: () => WakeMode.console);
+}
+
+/// Qué hace el botón de apagar: suspender (más rápido y el Wake-on-LAN es más fiable) o apagar del todo.
+enum PowerOffAction {
+  sleep('sleep', 'Suspender', 'Suspendiendo'),
+  shutdown('shutdown', 'Apagar', 'Apagando');
+
+  const PowerOffAction(this.wire, this.label, this.progress);
+
+  final String wire;
+  final String label;
+  final String progress;
+
+  static PowerOffAction fromWire(String? value) =>
+      values.firstWhere((a) => a.wire == value, orElse: () => PowerOffAction.sleep);
 }

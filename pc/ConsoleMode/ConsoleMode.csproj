@@ -11,7 +11,7 @@
     <RootNamespace>ConsoleMode</RootNamespace>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.5.2</Version>
+    <Version>1.6.0</Version>
     <Product>Console Mode</Product>
     <Description>Cambia el PC entre modo PC y modo consola (Steam Big Picture)</Description>
     <InvariantGlobalization>false</InvariantGlobalization>
