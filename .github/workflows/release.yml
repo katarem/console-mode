@@ -1,39 +1,37 @@
-name: Build
+name: Release
 
+# Una sola compilación completa por versión. Al fusionar en main (o al lanzarlo a mano con «Run workflow»), si la
+# versión de las apps todavía no tiene su etiqueta vX.Y.Z, se compilan las apps que han cambiado desde la etiqueta
+# anterior, se crea la etiqueta y se publica la release. Si la etiqueta ya existe, no se compila nada: el código ya se
+# comprobó en la pull request (ci.yml).
 on:
   push:
     branches: [main]
-    tags: ['v*']
-  pull_request:
   workflow_dispatch:
+
+# Nunca dos publicaciones a la vez; una nueva espera a que termine la anterior.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
-  # Decide si hay que publicar una release y qué apps hay que compilar según lo que ha cambiado:
-  # - push a main con una versión nueva (sin su etiqueta todavía): release vX.Y.Z con los cambios desde la etiqueta
-  #   anterior. La etiqueta la crea el propio paso de publicar.
-  # - push a main sin versión nueva: cambios del push (before..after), sin release
-  # - etiqueta vX.Y.Z subida a mano: cambios desde la etiqueta anterior
-  # - pull request: cambios respecto a la rama base
-  # - lanzado a mano, primera etiqueta o sin historial: todo
-  changes:
-    name: Detectar cambios
+  version:
+    name: Versión y cambios
     runs-on: ubuntu-latest
     outputs:
+      tag: ${{ steps.version.outputs.tag }}
       pc: ${{ steps.diff.outputs.pc }}
       mobile: ${{ steps.diff.outputs.mobile }}
-      tag: ${{ steps.release.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # La etiqueta es la versión más alta de las dos apps (<Version> del .csproj y version: del pubspec.yaml). Si ya
-      # existe, no hay nada que publicar: hay que subir la versión de alguna app para sacar una release.
-      - id: release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      # La etiqueta es la versión más alta de las dos apps (<Version> del .csproj y version: del pubspec.yaml).
+      - id: version
         run: |
           pc=$(sed -nE 's#.*<Version>([0-9]+\.[0-9]+\.[0-9]+)</Version>.*#\1#p' pc/ConsoleMode/ConsoleMode.csproj | head -n1)
           mobile=$(sed -nE 's/^version: *([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' mobile/pubspec.yaml)
@@ -42,32 +40,18 @@ jobs:
           if [[ -z "$version" ]]; then
             echo "No se ha podido leer la versión: no se publica release"
           elif git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
-            echo "La etiqueta v$version ya existe: no se publica release"
+            echo "La etiqueta v$version ya existe: no hay nada que publicar. Sube la versión de la app que cambie."
           else
             echo "tag=v$version" >> "$GITHUB_OUTPUT"
           fi
 
+      # Apps que han cambiado desde la etiqueta anterior. Si cambian los workflows, o no hay etiqueta anterior, las dos.
       - id: diff
-        env:
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-          BASE_REF: ${{ github.base_ref }}
-          NEW_TAG: ${{ steps.release.outputs.tag }}
+        if: steps.version.outputs.tag != ''
         run: |
-          base=""
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            base=$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_SHA}^" 2>/dev/null || true)
-          elif [[ -n "$NEW_TAG" ]]; then
-            # Release nueva desde main: lo que ha cambiado desde la etiqueta anterior.
-            base=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
-          elif [[ "$EVENT" == pull_request ]]; then
-            base="origin/$BASE_REF"
-          elif [[ "$EVENT" == push ]]; then
-            base="$BEFORE"
-          fi
-
-          if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
-            echo "Sin base con la que comparar: se compila todo"
+          base=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
+          if [[ -z "$base" ]]; then
+            echo "Primera release: se compila todo"
             echo "pc=true" >> "$GITHUB_OUTPUT"
             echo "mobile=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -77,7 +61,6 @@ jobs:
           echo "Cambios desde $base:"
           echo "$changed"
 
-          # Si cambia la propia CI, se compila todo para comprobarla.
           ci=false
           grep -q '^\.github/workflows/' <<< "$changed" && ci=true
 
@@ -91,8 +74,8 @@ jobs:
 
   windows:
     name: App de PC (Windows)
-    needs: changes
-    if: needs.changes.outputs.pc == 'true'
+    needs: version
+    if: needs.version.outputs.pc == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -132,8 +115,8 @@ jobs:
 
   android:
     name: App móvil (Android)
-    needs: changes
-    if: needs.changes.outputs.mobile == 'true'
+    needs: version
+    if: needs.version.outputs.mobile == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -145,6 +128,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - uses: subosito/flutter-action@v2
         with:
@@ -153,8 +137,6 @@ jobs:
           cache: true
 
       - run: flutter pub get
-      - run: flutter analyze
-      - run: flutter test
       # La versión se incrusta en la app para que pueda buscar actualizaciones.
       - name: Compilar APK
         run: |
@@ -175,14 +157,11 @@ jobs:
     name: Publicar release
     # Se publica con lo que se haya compilado: si una app no ha cambiado desde la etiqueta anterior, su archivo no
     # se vuelve a subir (la app de esa plataforma busca su actualización en las releases anteriores).
-    # En un push a main con versión nueva se crea aquí la etiqueta; también vale subir una etiqueta vX.Y.Z a mano.
     if: >
-      always() &&
-      (startsWith(github.ref, 'refs/tags/v') || needs.changes.outputs.tag != '') &&
-      needs.changes.result == 'success' &&
+      always() && needs.version.outputs.tag != '' &&
       needs.windows.result != 'failure' && needs.android.result != 'failure' &&
       (needs.windows.result == 'success' || needs.android.result == 'success')
-    needs: [changes, windows, android]
+    needs: [version, windows, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -190,10 +169,10 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # Crea la etiqueta en este commit. Al hacerlo con el token de la CI no se lanza otra ejecución.
       - uses: softprops/action-gh-release@v2
         with:
-          # Vacío en un push de etiqueta: se usa la propia etiqueta.
-          tag_name: ${{ needs.changes.outputs.tag }}
+          tag_name: ${{ needs.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
           files: dist/*
           generate_release_notes: true
