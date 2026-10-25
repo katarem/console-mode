@@ -122,6 +122,17 @@ public static class ConsoleFrontend
         }
     }
 
+    /// <summary>Pone el frontal delante (p. ej. al cerrar un juego desde el overlay). Devuelve false si no está abierto.</summary>
+    public static bool Activate()
+    {
+        if (Kind == FrontendKind.SteamBigPicture)
+        {
+            return SteamBigPicture.Activate();
+        }
+        var window = ExePath is { Length: > 0 } exe ? FindProgramWindow(exe) : IntPtr.Zero;
+        return window != IntPtr.Zero && SetForegroundWindow(window);
+    }
+
     public static bool IsOpen => Kind == FrontendKind.SteamBigPicture
         ? SteamBigPicture.IsOpen
         : ExePath is { Length: > 0 } exe && FindProgramWindow(exe) != IntPtr.Zero;

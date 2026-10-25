@@ -131,6 +131,9 @@ pequeños del centro) durante **1 segundo**. Aparece un panel en la esquina infe
 - **Volver a modo PC** (en modo consola): cierra el frontal (Big Picture, Playnite...) y vuelve a tu pantalla y tu audio del modo PC, sin
   soltar el mando.
 - **Ir a modo consola** (en modo PC): el panel se cierra y se activa el modo consola, con el frontal en la TV.
+- **Cerrar juego** (si hay un juego delante al abrir el panel): **A** dos veces lo cierra como Alt+F4. Si no se cierra
+  en unos segundos (hay juegos sin opción de salir que tampoco hacen caso), ofrece **forzar el cierre**. Después el
+  foco vuelve al frontal. Útil con Playnite u otros frontales, que no tienen el menú de Big Picture para salir del juego.
 - **Silenciar sonido** y **Silenciar micro**: dos botones, uno al lado del otro (elige con ← →). El micrófono se
   silencia también como dispositivo de comunicaciones, así que Discord tampoco te oye.
 - **Salida de audio**, **Micrófono**, **Comunicaciones** y **Pantalla principal**: cada opción muestra solo lo elegido

@@ -37,17 +37,19 @@ public sealed class OverlayForm : Form
     private static readonly Color DisplayColor = Color.FromArgb(20, 184, 166);
     private static readonly Color MutedOnColor = Color.FromArgb(239, 68, 68);
     private static readonly Color MutedOffColor = Color.FromArgb(52, 52, 68);
+    private static readonly Color CloseGameColor = Color.FromArgb(220, 38, 38);
 
     // Iconos de Segoe Fluent Icons (Windows 11) o Segoe MDL2 Assets (Windows 10): mismos códigos en las dos.
-    private const string GlyphVolume = "";
-    private const string GlyphMute = "";
-    private const string GlyphMic = "";
-    private const string GlyphHeadset = "";
-    private const string GlyphDisplay = "";
-    private const string GlyphGame = "";
-    private const string GlyphPc = "";
-    private const string GlyphChevron = "";
-    private const string GlyphCheck = "";
+    private const string GlyphVolume = "\uE767";
+    private const string GlyphMute = "\uE74F";
+    private const string GlyphMic = "\uE720";
+    private const string GlyphHeadset = "\uE95B";
+    private const string GlyphDisplay = "\uE7F4";
+    private const string GlyphGame = "\uE7FC";
+    private const string GlyphPc = "\uE977";
+    private const string GlyphChevron = "\uE76C";
+    private const string GlyphCheck = "\uE73E";
+    private const string GlyphClose = "\uE711";
 
     private static readonly TimeSpan IdleClose = TimeSpan.FromSeconds(20);
     private const int VolumeStep = 5;
@@ -64,6 +66,7 @@ public sealed class OverlayForm : Form
     private enum RowKind
     {
         SwitchMode,
+        CloseGame,
         MuteToggles,
         Picker,
         Volume,
@@ -91,6 +94,13 @@ public sealed class OverlayForm : Form
     private readonly ModeSwitcher _switcher;
     private readonly Func<bool> _inputHeld;
     private readonly string _previousProcess;
+
+    // Juego que estaba delante al abrir el overlay (null si era el frontal, el escritorio...). Cerrarlo pide confirmación
+    // (A dos veces); si no se cierra por las buenas, se ofrece forzar el cierre.
+    private readonly GameWindow? _game;
+    private DateTime _closeArmedUntil;
+    private bool _offerForceClose;
+    private bool _gameClosed;
     private readonly System.Windows.Forms.Timer _releaseTimer = new() { Interval = 20 };
     private readonly System.Diagnostics.Stopwatch _releaseClock = new();
     private int _releasedPolls;
@@ -140,6 +150,7 @@ public sealed class OverlayForm : Form
     {
         _previousForeground = WindowFocus.Foreground;
         _previousProcess = WindowFocus.ProcessNameOf(_previousForeground);
+        _game = GameWindow.FromWindow(_previousForeground);
         _switcher = switcher;
         _inputHeld = inputHeld;
 
@@ -385,8 +396,9 @@ public sealed class OverlayForm : Form
         _switcher.StateChanged -= OnSwitcherStateChanged;
         _foregroundWatcher?.Dispose();
         _foregroundWatcher = null;
-        // Solo devolvemos el foco si seguía en el overlay (si el usuario hizo clic en otra ventana, la respetamos).
-        if (WindowFocus.Foreground == Handle)
+        // Solo devolvemos el foco si seguía en el overlay (si el usuario hizo clic en otra ventana, la respetamos). Si se
+        // ha cerrado el juego, va al frontal (Big Picture, Playnite...) para seguir con el mando.
+        if (WindowFocus.Foreground == Handle && !(_gameClosed && ConsoleFrontend.Activate()))
         {
             WindowFocus.Restore(_previousForeground);
         }
@@ -440,6 +452,11 @@ public sealed class OverlayForm : Form
                 : new Row(RowKind.SwitchMode, "mode", "Ir a modo consola",
                     ConsoleFrontend.LaunchesOnConsoleMode ? $"Abre {ConsoleFrontend.Name} en la pantalla de la consola" : "Aplica el modo consola", GlyphGame,
                     ConsoleColor, Target: AppMode.Console));
+        }
+        if (_game != null && !_gameClosed)
+        {
+            _rows.Add(new Row(RowKind.CloseGame, "close-game", _offerForceClose ? "Forzar cierre del juego" : "Cerrar juego",
+                _game.Name, GlyphClose, CloseGameColor));
         }
         if (_outVolume != null || _inVolume != null)
         {
@@ -663,6 +680,9 @@ public sealed class OverlayForm : Form
             case RowKind.Picker:
                 OpenPicker(row.Picker);
                 return;
+            case RowKind.CloseGame:
+                _ = CloseGameAsync();
+                return;
         }
 
         if (row.Target == AppMode.Console)
@@ -687,6 +707,69 @@ public sealed class OverlayForm : Form
         SetStatus("Volviendo a modo PC…");
         _switcher.StateChanged += OnSwitcherStateChanged;
         _ = _switcher.SwitchAsync(AppMode.Pc);
+    }
+
+    /// <summary>
+    /// Cierra el juego que estaba delante: A una vez pide confirmación y A otra vez lo cierra como Alt+F4. Si no se
+    /// cierra en unos segundos (hay juegos que no hacen caso, o preguntan), se ofrece forzar el cierre.
+    /// </summary>
+    private async Task CloseGameAsync()
+    {
+        if (_game is not { } game)
+        {
+            return;
+        }
+        if (DateTime.UtcNow > _closeArmedUntil)
+        {
+            _closeArmedUntil = DateTime.UtcNow + TimeSpan.FromSeconds(4);
+            SetStatus(_offerForceClose ? $"Pulsa A otra vez para forzar el cierre de {game.Name}" : $"Pulsa A otra vez para cerrar {game.Name}");
+            return;
+        }
+
+        _closeArmedUntil = DateTime.MinValue;
+        _busy = true;
+        _idleTimer.Stop();
+        try
+        {
+            if (_offerForceClose)
+            {
+                SetStatus($"Forzando el cierre de {game.Name}…");
+                await Task.Run(game.Kill);
+            }
+            else
+            {
+                SetStatus($"Cerrando {game.Name}…");
+                game.RequestClose();
+            }
+
+            if (await game.WaitForExitAsync(TimeSpan.FromSeconds(6)))
+            {
+                Log.Info($"Overlay: juego «{game.Name}» cerrado");
+                _gameClosed = true;
+                _busy = false;
+                if (!IsDisposed)
+                {
+                    CloseWhenReleased(); // al cerrarse el overlay, el foco vuelve al frontal
+                }
+                return;
+            }
+
+            _offerForceClose = true;
+            SetStatus($"{game.Name} no se ha cerrado. Pulsa A dos veces para forzar el cierre.", error: true);
+        }
+        catch (Exception ex)
+        {
+            SetStatus(ex.Message, error: true);
+            Log.Error("Overlay: no se pudo cerrar el juego", ex);
+        }
+
+        _busy = false;
+        if (!IsDisposed)
+        {
+            _idleTimer.Start();
+            BuildRows();
+            Invalidate();
+        }
     }
 
     private void OpenPicker(PickerKind picker)
@@ -977,6 +1060,7 @@ public sealed class OverlayForm : Form
         switch (row.Kind)
         {
             case RowKind.SwitchMode:
+            case RowKind.CloseGame:
                 DrawChip(g, chip, row.Glyph, row.Color, f.Icon);
                 var middle = bounds.Top + bounds.Height / 2;
                 TextRenderer.DrawText(g, row.Title, f.RowBold, Rectangle.FromLTRB(text.Left, middle - f.RowBold.Height, text.Right, middle + Px(1)),
@@ -1130,6 +1214,7 @@ public sealed class OverlayForm : Form
             {
                 RowKind.Volume => VolumeOf(row.Flow)?.Muted == true ? "Activar" : "Silenciar",
                 RowKind.MuteToggles => "Activar / silenciar",
+                RowKind.CloseGame => _offerForceClose ? "Forzar cierre" : "Cerrar",
                 _ => "Elegir",
             }));
             hints.Add(("B", Color.FromArgb(200, 40, 40), "Cerrar"));
