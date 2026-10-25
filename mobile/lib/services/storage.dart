@@ -14,6 +14,7 @@ class AppStorage {
   static const _kDeviceId = 'device_id';
   static const _kDeviceName = 'device_name';
   static const _kPcs = 'pcs';
+  static const _kWakeRequests = 'wake_requests';
 
   final SharedPreferences _prefs;
   final String deviceId;
@@ -71,7 +72,37 @@ class AppStorage {
 
   Future<void> removePc(String id) async {
     _pcs.removeWhere((p) => p.id == id);
+    await clearWakeRequest(id);
     await _save();
+  }
+
+  // ---------- Peticiones de encendido ----------
+  // Se guardan para que, aunque la app pase a segundo plano o se cierre mientras Windows arranca, al conectar con el
+  // PC se pida el modo elegido.
+
+  WakeRequest? wakeRequest(String pcId) {
+    try {
+      final all = jsonDecode(_prefs.getString(_kWakeRequests) ?? '{}') as Map<String, dynamic>;
+      final json = all[pcId];
+      return json == null ? null : WakeRequest.fromJson(json as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setWakeRequest(String pcId, WakeRequest request) => _updateWakeRequests((all) => all[pcId] = request.toJson());
+
+  Future<void> clearWakeRequest(String pcId) => _updateWakeRequests((all) => all.remove(pcId));
+
+  Future<void> _updateWakeRequests(void Function(Map<String, dynamic> all) change) async {
+    Map<String, dynamic> all;
+    try {
+      all = jsonDecode(_prefs.getString(_kWakeRequests) ?? '{}') as Map<String, dynamic>;
+    } catch (_) {
+      all = {};
+    }
+    change(all);
+    await _prefs.setString(_kWakeRequests, jsonEncode(all));
   }
 
   Future<void> _save() =>

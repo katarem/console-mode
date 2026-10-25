@@ -85,6 +85,16 @@ public static class SteamBigPicture
 
     public static bool IsOpen => FindWindow() != IntPtr.Zero;
 
+    /// <summary>Pone Big Picture delante (p. ej. al cerrar un juego desde el overlay). Devuelve false si no está abierto.</summary>
+    public static bool Activate()
+    {
+        var hwnd = FindWindow();
+        return hwnd != IntPtr.Zero && SetForegroundWindow(hwnd);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hwnd);
+
     /// <summary>
     /// Busca la ventana principal de Big Picture: pertenece a steamwebhelper/steam y su título contiene
     /// "Big Picture" (en español: "Modo Big Picture de Steam"). Steam a veces separa las dos palabras con

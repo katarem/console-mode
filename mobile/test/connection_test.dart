@@ -27,6 +27,7 @@ class FakePc {
   String mic = 'webcam';
   String comms = 'tv';
   String? power;
+  int setModeCount = 0;
   late ServerSocket server;
 
   int get port => server.port;
@@ -37,6 +38,8 @@ class FakePc {
   }
 
   void _handle(Socket s) {
+    // Un móvil que corta la conexión de golpe no debe tumbar el test.
+    s.done.catchError((Object _) => s);
     const nonce = 'n0nce';
     void send(Map<String, dynamic> m) => s.write('${jsonEncode(m)}\n');
     send({'type': 'hello', 'version': 5, 'pcId': pcId, 'pcName': 'FAKE-PC', 'nonce': nonce});
@@ -101,6 +104,7 @@ class FakePc {
           sendDevices();
         case 'set_mode':
           if (device == null) return;
+          setModeCount++;
           send({'type': 'status', 'mode': mode, 'busy': true, 'error': null});
           mode = msg['mode'] as String;
           send({'type': 'status', 'mode': mode, 'busy': false, 'error': null});
@@ -304,5 +308,69 @@ void main() {
     final roundTrip = SavedPc.fromJson(pc.copyWith(wakeMode: WakeMode.keep, powerOff: PowerOffAction.shutdown).toJson());
     expect(roundTrip.wakeMode, WakeMode.keep);
     expect(roundTrip.powerOff, PowerOffAction.shutdown);
+  });
+
+  test('al encender pide el modo aunque el PC diga que ya está en él', () async {
+    final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final port = probe.port;
+    await probe.close();
+
+    final storage = await AppStorage.load();
+    final saved = SavedPc(
+      id: 'pc-1',
+      name: 'FAKE-PC',
+      hosts: ['127.0.0.1'],
+      port: port,
+      token: 'tok',
+      wake: WakeTarget.listFromJson(FakePc.wake),
+    );
+    final conn = PcConnection(saved, storage)..start();
+    await waitFor(() => conn.status == ConnectionStatus.offline, timeout: const Duration(seconds: 15));
+    await conn.wake();
+
+    // Se apagó en modo consola: al arrancar Console Mode sigue diciendo «consola», pero el frontal no está abierto.
+    final pc = FakePc(bindPort: port)..mode = 'console';
+    pc.tokens[storage.deviceId] = 'tok';
+    await pc.start();
+
+    await waitFor(() => pc.setModeCount == 1 && !conn.busy, timeout: const Duration(seconds: 20));
+    expect(pc.mode, 'console');
+    expect(storage.wakeRequest('pc-1'), isNull);
+    await waitFor(() => conn.audio.length == 2);
+    conn.dispose();
+    await pc.stop();
+  });
+
+  test('la petición de encendido sobrevive a cerrar la app mientras el PC arranca', () async {
+    final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final port = probe.port;
+    await probe.close();
+
+    final storage = await AppStorage.load();
+    final saved = SavedPc(
+      id: 'pc-1',
+      name: 'FAKE-PC',
+      hosts: ['127.0.0.1'],
+      port: port,
+      token: 'tok',
+      wake: WakeTarget.listFromJson(FakePc.wake),
+    );
+    final first = PcConnection(saved, storage)..start();
+    await waitFor(() => first.status == ConnectionStatus.offline, timeout: const Duration(seconds: 15));
+    await first.wake();
+    expect(storage.wakeRequest('pc-1')?.mode, PcMode.console);
+    first.dispose(); // la app se cierra
+
+    final pc = FakePc(bindPort: port);
+    pc.tokens[storage.deviceId] = 'tok';
+    await pc.start();
+
+    final second = PcConnection(saved, storage)..start(); // se vuelve a abrir
+    expect(second.waking, isTrue);
+    await waitFor(() => pc.mode == 'console' && second.mode == PcMode.console && !second.busy,
+        timeout: const Duration(seconds: 20));
+    await waitFor(() => second.audio.length == 2);
+    second.dispose();
+    await pc.stop();
   });
 }

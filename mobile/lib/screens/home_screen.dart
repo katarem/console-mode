@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../services/models.dart';
 import '../services/storage.dart';
 import '../services/updater.dart';
-import '../services/wake_on_lan.dart';
 import 'control_screen.dart';
 import 'discover_screen.dart';
 import 'pairing_screen.dart';
@@ -156,16 +155,7 @@ class _HomeScreenState extends State<HomeScreen> {
               leading: const CircleAvatar(child: Icon(Icons.desktop_windows_outlined)),
               title: Text(pc.name),
               subtitle: Text('${pc.hosts.first}:${pc.port}'),
-              trailing: PopupMenuButton<String>(
-                onSelected: (v) {
-                  if (v == 'wake') _wake(pc);
-                  if (v == 'remove') _removePc(pc);
-                },
-                itemBuilder: (_) => [
-                  if (pc.canWake) const PopupMenuItem(value: 'wake', child: Text('Encender el PC')),
-                  const PopupMenuItem(value: 'remove', child: Text('Olvidar este PC')),
-                ],
-              ),
+              trailing: const Icon(Icons.chevron_right),
               onTap: () => _open(pc),
             ),
           ),
@@ -178,16 +168,6 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => ControlScreen(pc: pc, storage: storage)),
     );
     if (mounted) setState(() {});
-  }
-
-  Future<void> _wake(SavedPc pc) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await WakeOnLan.wake(pc.wake);
-      messenger.showSnackBar(SnackBar(content: Text('Señal de encendido enviada a «${pc.name}».')));
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('No se pudo enviar la señal de encendido: $e')));
-    }
   }
 
   Future<void> _addPc() async {
@@ -227,26 +207,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     setState(() {});
     if (pc != null) await _open(pc);
-  }
-
-  Future<void> _removePc(SavedPc pc) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('¿Olvidar «${pc.name}»?'),
-        content: const Text(
-            'Tendrás que volver a emparejarlo. Para revocar también el acceso en el PC, '
-            'quítalo de la lista de dispositivos de confianza en Console Mode.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Olvidar')),
-        ],
-      ),
-    );
-    if (ok == true) {
-      await storage.removePc(pc.id);
-      if (mounted) setState(() {});
-    }
   }
 
   Future<void> _editDeviceName() async {

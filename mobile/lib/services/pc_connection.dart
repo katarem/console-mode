@@ -43,8 +43,9 @@ class PcConnection extends ChangeNotifier {
 
   SavedPc get pc => _pc;
 
-  /// Tiempo máximo de espera tras enviar la señal de encendido (arrancar Windows puede tardar).
-  static const wakeTimeout = Duration(minutes: 3);
+  /// Cuánto se muestra «Encendiendo…» tras enviar la señal (arrancar Windows puede tardar). El modo pedido se aplica
+  /// aunque el PC tarde más, mientras la petición siga vigente ([WakeRequest.validFor]).
+  static const wakeTimeout = Duration(minutes: 5);
 
   LineConnection? _conn;
   Timer? _pingTimer;
@@ -52,7 +53,6 @@ class PcConnection extends ChangeNotifier {
   bool _active = false;
   bool _disposed = false;
   int _attempt = 0;
-  PcMode? _modeAfterWake;
   PcMode? _pendingMode;
   Timer? _wakeTimer;
   Timer? _wakeResendTimer;
@@ -60,7 +60,16 @@ class PcConnection extends ChangeNotifier {
   void start() {
     if (_active) return;
     _active = true;
+    _resumeWake();
     _connect();
+  }
+
+  /// Si se pidió encender este PC hace poco (p. ej. la app se cerró mientras arrancaba), se sigue esperándolo.
+  void _resumeWake() {
+    final request = _storage.wakeRequest(_pc.id);
+    if (request == null || !request.isValid) return;
+    final remaining = wakeTimeout - DateTime.now().difference(request.requestedAt);
+    if (remaining > Duration.zero) _waitForWake(remaining);
   }
 
   void stop() {
@@ -78,6 +87,9 @@ class PcConnection extends ChangeNotifier {
     _attempt = 0;
     _connect();
   }
+
+  /// Quita este PC del móvil.
+  Future<void> forget() => _storage.removePc(_pc.id);
 
   /// Guarda el modo al encender y la acción del botón de apagar de este PC.
   Future<void> updatePowerSettings({WakeMode? wakeMode, PowerOffAction? powerOff}) async {
@@ -98,30 +110,23 @@ class PcConnection extends ChangeNotifier {
 
   /// Enciende o despierta el PC con Wake-on-LAN y espera a que vuelva. Al conectar lo pone en el modo elegido para
   /// este PC ([SavedPc.wakeMode]), salvo que se indique otro con [thenMode].
+  ///
+  /// El paquete de Wake-on-LAN no puede llevar el modo: lo aplica el móvil al conectar. La petición se guarda, así que
+  /// también vale si la app pasa a segundo plano o se cierra mientras Windows arranca.
   Future<void> wake({PcMode? thenMode}) async {
     if (!_pc.canWake || status == ConnectionStatus.connected) return;
-    _modeAfterWake = thenMode ?? _pc.wakeMode.mode;
+    await _storage.setWakeRequest(_pc.id, WakeRequest(mode: thenMode ?? _pc.wakeMode.mode, requestedAt: DateTime.now()));
     poweringOff = false;
-    waking = true;
     lastError = null;
-    _notify();
     try {
       await WakeOnLan.wake(_pc.wake);
     } catch (e) {
-      _endWake(error: 'No se pudo enviar la señal de encendido: $e');
+      await _storage.clearWakeRequest(_pc.id);
+      lastError = 'No se pudo enviar la señal de encendido: $e';
+      _notify();
       return;
     }
-    // Se repite la señal de vez en cuando por si se pierde y se reintenta conectar a menudo mientras arranca.
-    _wakeResendTimer?.cancel();
-    _wakeResendTimer = Timer.periodic(const Duration(seconds: 15), (_) => WakeOnLan.wake(_pc.wake).ignore());
-    _wakeTimer?.cancel();
-    _wakeTimer = Timer(wakeTimeout, () {
-      if (status != ConnectionStatus.connected) {
-        _endWake(
-            error: 'El PC no ha respondido. Comprueba que Wake-on-LAN esté activado en la BIOS y en la pestaña '
-                '«Encendido» de Console Mode, y que el PC esté conectado por cable.');
-      }
-    });
+    _waitForWake(wakeTimeout);
     _active = true;
     _attempt = 0;
     if (status != ConnectionStatus.connecting) {
@@ -130,12 +135,28 @@ class PcConnection extends ChangeNotifier {
     }
   }
 
+  /// Muestra «Encendiendo…», repite la señal de vez en cuando por si se pierde y reintenta conectar a menudo.
+  void _waitForWake(Duration timeout) {
+    waking = true;
+    _notify();
+    _wakeResendTimer?.cancel();
+    _wakeResendTimer = Timer.periodic(const Duration(seconds: 15), (_) => WakeOnLan.wake(_pc.wake).ignore());
+    _wakeTimer?.cancel();
+    _wakeTimer = Timer(timeout, () {
+      if (status != ConnectionStatus.connected) {
+        _endWake(
+            error: 'El PC no ha respondido. Comprueba que Wake-on-LAN esté activado en la BIOS y en la pestaña '
+                '«Encendido» de Console Mode, y que el PC esté conectado por cable. Si Windows pide el PIN al '
+                'arrancar, Console Mode no se abre hasta que inicies sesión.');
+      }
+    });
+  }
+
   void _endWake({String? error}) {
     _wakeTimer?.cancel();
     _wakeResendTimer?.cancel();
     if (!waking) return;
     waking = false;
-    _modeAfterWake = null;
     if (error != null) lastError = error;
     _notify();
   }
@@ -254,7 +275,11 @@ class PcConnection extends ChangeNotifier {
           }
           if (supportsQuickSwitch) conn.send({'type': 'get_devices'});
           // Si se ha encendido para entrar en un modo, se pide al llegar el estado (justo después de auth_ok).
-          _pendingMode = _modeAfterWake;
+          final request = _storage.wakeRequest(_pc.id);
+          if (request != null) {
+            await _storage.clearWakeRequest(_pc.id);
+            if (request.isValid) _pendingMode = request.mode;
+          }
           _endWake();
           _notify();
         case 'auth_failed':
@@ -273,9 +298,11 @@ class PcConnection extends ChangeNotifier {
           mode = PcMode.fromWire(msg['mode'] as String?);
           busy = msg['busy'] == true;
           lastError = msg['error'] as String?;
+          // Aunque el PC diga que ya está en ese modo se vuelve a aplicar: al arrancar recuerda el modo en el que se
+          // apagó, pero el frontal (Big Picture...) no está abierto. Si está cambiando de modo, se espera a que acabe.
           final pending = _pendingMode;
-          _pendingMode = null;
-          if (pending != null && !busy && mode != pending) {
+          if (pending != null && !busy) {
+            _pendingMode = null;
             busy = true;
             conn.send({'type': 'set_mode', 'mode': pending.wire});
           }

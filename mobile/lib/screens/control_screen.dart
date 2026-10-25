@@ -151,16 +151,6 @@ class _StatusBanner extends StatelessWidget {
             icon: const Icon(Icons.refresh),
             label: const Text('Reintentar ahora'),
           ),
-          if (!c.pc.canWake)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'Para encender el PC desde aquí, actualiza Console Mode en el PC (versión 1.5.0 o posterior) '
-                'y conéctate una vez con el PC encendido.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
         ],
       ],
     );
@@ -324,6 +314,14 @@ Future<void> _showPowerSettings(BuildContext context, PcConnection connection) =
                     'Suspender es más rápido y el PC se vuelve a encender desde aquí con más fiabilidad que desde apagado.',
                     style: theme.textTheme.bodySmall,
                   ),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  TextButton.icon(
+                    onPressed: () => _forgetPc(context, connection),
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Olvidar este PC'),
+                    style: TextButton.styleFrom(foregroundColor: theme.colorScheme.error),
+                  ),
                 ],
               ),
             ),
@@ -332,7 +330,30 @@ Future<void> _showPowerSettings(BuildContext context, PcConnection connection) =
       ),
     );
 
-/// Botón de encendido: enciende el PC si no responde (Wake-on-LAN) y lo suspende o apaga si está conectado.
+/// Quita el PC de la lista del móvil (tras confirmar) y vuelve a la lista.
+Future<void> _forgetPc(BuildContext context, PcConnection connection) async {
+  final navigator = Navigator.of(context);
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('¿Olvidar «${connection.pc.name}»?'),
+      content: const Text('Tendrás que volver a emparejarlo. Para revocar también el acceso en el PC, '
+          'quítalo de la lista de dispositivos de confianza en Console Mode.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Olvidar')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+  connection.stop();
+  await connection.forget();
+  navigator
+    ..pop() // hoja de ajustes
+    ..pop(); // pantalla del PC
+}
+
+/// Botón de encendido: enciende el PC (Wake-on-LAN) si no está conectado y lo suspende o apaga si lo está.
 class _PowerButton extends StatelessWidget {
   const _PowerButton({required this.connection});
 
@@ -347,14 +368,21 @@ class _PowerButton extends StatelessWidget {
     final String label;
     final Color color;
     final VoidCallback? onPressed;
+    String? hint;
     if (c.waking) {
       (label, color, onPressed) = ('Encendiendo…', theme.colorScheme.tertiary, null);
     } else if (c.poweringOff) {
       (label, color, onPressed) = ('${c.pc.powerOff.progress}…', theme.colorScheme.outline, null);
     } else if (connected) {
-      if (!c.supportsPower) return const SizedBox.shrink();
-      (label, color, onPressed) = (c.pc.powerOff.label, Colors.redAccent, c.busy ? null : () => _confirmPowerOff(context));
-    } else if (c.status == ConnectionStatus.offline && c.pc.canWake) {
+      (label, color, onPressed) = (
+        c.pc.powerOff.label,
+        Colors.redAccent,
+        !c.supportsPower || c.busy ? null : () => _confirmPowerOff(context),
+      );
+      if (!c.supportsPower) hint = 'Para apagarlo desde aquí, actualiza Console Mode en el PC.';
+    } else {
+      // Sin conexión, o mientras se intenta conectar: se puede encender ya, sin esperar a saber si responde (si ya
+      // estaba encendido, la señal no le afecta y al conectar se pone en el modo elegido).
       final mode = c.pc.wakeMode.mode;
       (label, color, onPressed) = (
         switch (mode) {
@@ -363,10 +391,11 @@ class _PowerButton extends StatelessWidget {
           null => 'Encender',
         },
         Colors.green,
-        c.wake,
+        c.pc.canWake && c.status != ConnectionStatus.unauthorized ? c.wake : null,
       );
-    } else {
-      return const SizedBox.shrink();
+      if (!c.pc.canWake) {
+        hint = 'Para encenderlo desde aquí, conecta una vez con el PC encendido y Console Mode 1.5.0 o posterior.';
+      }
     }
 
     final enabled = onPressed != null;
@@ -390,6 +419,13 @@ class _PowerButton extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         Text(label, style: theme.textTheme.titleSmall?.copyWith(color: enabled ? null : theme.disabledColor)),
+        if (hint != null) ...[
+          const SizedBox(height: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 300),
+            child: Text(hint, textAlign: TextAlign.center, style: theme.textTheme.bodySmall),
+          ),
+        ],
       ],
     );
   }
