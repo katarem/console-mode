@@ -21,6 +21,9 @@ public sealed class ModeSwitcher
 
     public ModeState State => new(_settings.CurrentMode, _busy);
 
+    /// <summary>Pantalla configurada para el modo consola (null = «No cambiar»).</summary>
+    public string? ConsoleDisplayId => _settings.ConsoleProfile.DisplayId;
+
     public Task SwitchAsync(AppMode target) => Task.Run(() => SwitchCoreAsync(target));
 
     private async Task SwitchCoreAsync(AppMode target)
