@@ -103,6 +103,36 @@ public static class WindowFocus
         }
     }
 
+    /// <summary>
+    /// Hay un juego en pantalla completa exclusiva (Direct3D): dibuja directamente en la pantalla y ninguna ventana se
+    /// ve encima, tampoco el overlay. Con las optimizaciones de pantalla completa de Windows esto no suele pasar.
+    /// </summary>
+    public static bool IsExclusiveFullscreenRunning =>
+        SHQueryUserNotificationState(out var state) == 0 && state == QUNS_RUNNING_D3D_FULL_SCREEN;
+
+    /// <summary>Minimiza la ventana, como Alt+Tab con un juego en pantalla completa.</summary>
+    public static void Minimize(IntPtr hwnd) => ShowWindow(hwnd, SW_MINIMIZE);
+
+    /// <summary>Restaura una ventana minimizada y le devuelve el foco (el juego vuelve a pantalla completa).</summary>
+    public static void RestoreMinimized(IntPtr hwnd)
+    {
+        if (hwnd != IntPtr.Zero && IsWindow(hwnd))
+        {
+            ShowWindow(hwnd, SW_RESTORE);
+            SetForegroundWindow(hwnd);
+        }
+    }
+
+    private const int QUNS_RUNNING_D3D_FULL_SCREEN = 3;
+    private const int SW_MINIMIZE = 6;
+    private const int SW_RESTORE = 9;
+
+    [DllImport("shell32.dll")]
+    private static extern int SHQueryUserNotificationState(out int state);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hwnd, int cmdShow);
+
     private const byte VK_MENU = 0x12;
     private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     private const uint KEYEVENTF_KEYUP = 0x0002;

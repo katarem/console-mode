@@ -37,6 +37,13 @@ public sealed class MainForm : Form
     private readonly CheckBox _launchFrontend = new() { Text = "Abrir el frontal al activar el modo consola", AutoSize = true };
     private readonly CheckBox _moveFrontend = new() { Text = "Forzar el frontal en la pantalla del modo consola", AutoSize = true };
     private readonly CheckBox _closeFrontend = new() { Text = "Cerrar el frontal al volver al modo PC", AutoSize = true };
+    private readonly CheckBox _minimizeExclusive = new()
+    {
+        Text = "Con juegos en pantalla completa exclusiva, minimizarlos para ver el overlay (y restaurarlos al cerrarlo)",
+        AutoSize = true,
+        MaximumSize = new Size(520, 0),
+        Margin = new Padding(22, 0, 3, 3),
+    };
     private readonly CheckBox _gamepadOverlay = new()
     {
         Text = "Overlay con el mando: mantén View + Menú 1 s para cambiar audio y pantalla",
@@ -196,6 +203,8 @@ public sealed class MainForm : Form
         consoleGrid.SetColumnSpan(_closeFrontend, 2);
         consoleGrid.Controls.Add(_gamepadOverlay);
         consoleGrid.SetColumnSpan(_gamepadOverlay, 2);
+        consoleGrid.Controls.Add(_minimizeExclusive);
+        consoleGrid.SetColumnSpan(_minimizeExclusive, 2);
         consoleGroup.Controls.Add(consoleGrid);
 
         var refresh = new Button { Text = "Actualizar pantallas y audio", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
@@ -272,6 +281,7 @@ public sealed class MainForm : Form
         });
         _moveFrontend.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.MoveFrontendToConsoleDisplay = _moveFrontend.Checked);
         _closeFrontend.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.CloseFrontendOnPcMode = _closeFrontend.Checked);
+        _minimizeExclusive.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.MinimizeExclusiveFullscreen = _minimizeExclusive.Checked);
         _gamepadOverlay.CheckedChanged += (_, _) =>
         {
             if (!_loading)
@@ -712,6 +722,7 @@ public sealed class MainForm : Form
             _moveFrontend.Enabled = Settings.LaunchFrontend;
             _closeFrontend.Checked = Settings.CloseFrontendOnPcMode;
             _gamepadOverlay.Checked = Settings.GamepadOverlayEnabled;
+            _minimizeExclusive.Checked = Settings.MinimizeExclusiveFullscreen;
             _showTray.Checked = Settings.ShowTrayIcon;
             _startWithWindows.Checked = StartupManager.IsEnabled;
             _port.Value = Math.Clamp(Settings.Port, (int)_port.Minimum, (int)_port.Maximum);

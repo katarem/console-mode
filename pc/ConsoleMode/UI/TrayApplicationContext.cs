@@ -25,6 +25,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     private Version? _notifiedUpdate;
     private OverlayForm? _overlay;
     private DeviceWatcher? _deviceWatcher;
+    private bool _overlayPending;
 
     public TrayApplicationContext(bool showWindow, bool afterUpdate = false)
     {
@@ -233,8 +234,33 @@ public sealed class TrayApplicationContext : ApplicationContext
             _overlay.Close();
             return;
         }
+        if (_overlayPending)
+        {
+            return;
+        }
 
-        _overlay = new OverlayForm(AppIcon, Switcher, () => _gamepad?.AnyInputHeld ?? false);
+        // Un juego en pantalla completa exclusiva no deja ver ninguna ventana encima: se minimiza (como Alt+Tab), se
+        // espera a que Windows vuelva al escritorio y se enseña el overlay. Al cerrarlo, el juego se restaura.
+        var foreground = WindowFocus.Foreground;
+        if (Settings.MinimizeExclusiveFullscreen && WindowFocus.IsExclusiveFullscreenRunning && GameWindow.FromWindow(foreground) is { } game)
+        {
+            Log.Info($"Overlay: «{game.Name}» está en pantalla completa exclusiva; se minimiza para enseñar el overlay");
+            _overlayPending = true;
+            WindowFocus.Minimize(foreground);
+            _ = Task.Delay(TimeSpan.FromMilliseconds(1000)).ContinueWith(_ => RunOnUi(() =>
+            {
+                _overlayPending = false;
+                ShowOverlay(foreground);
+            }));
+            return;
+        }
+
+        ShowOverlay(IntPtr.Zero);
+    }
+
+    private void ShowOverlay(IntPtr minimizedGame)
+    {
+        _overlay = new OverlayForm(AppIcon, Switcher, () => _gamepad?.AnyInputHeld ?? false, minimizedGame);
         _overlay.FormClosed += (_, _) =>
         {
             _overlay = null;

@@ -98,6 +98,7 @@ public sealed class OverlayForm : Form
     // Juego que estaba delante al abrir el overlay (null si era el frontal, el escritorio...). Cerrarlo pide confirmación
     // (A dos veces); si no se cierra por las buenas, se ofrece forzar el cierre.
     private readonly GameWindow? _game;
+    private readonly IntPtr _minimizedGame;
     private DateTime _closeArmedUntil;
     private bool _offerForceClose;
     private bool _gameClosed;
@@ -146,9 +147,14 @@ public sealed class OverlayForm : Form
     private Rectangle _hintRect;
 
     /// <param name="inputHeld">Si el mando tiene algo pulsado: el overlay no devuelve el foco hasta que se suelta.</param>
-    public OverlayForm(Icon icon, ModeSwitcher switcher, Func<bool> inputHeld)
+    /// <param name="minimizedGame">
+    /// Juego en pantalla completa exclusiva que se ha minimizado para poder enseñar el overlay: es la ventana «de antes»
+    /// y, al cerrar el overlay, se restaura (salvo que se haya cerrado el juego).
+    /// </param>
+    public OverlayForm(Icon icon, ModeSwitcher switcher, Func<bool> inputHeld, IntPtr minimizedGame = default)
     {
-        _previousForeground = WindowFocus.Foreground;
+        _minimizedGame = minimizedGame;
+        _previousForeground = minimizedGame != IntPtr.Zero ? minimizedGame : WindowFocus.Foreground;
         _previousProcess = WindowFocus.ProcessNameOf(_previousForeground);
         _game = GameWindow.FromWindow(_previousForeground);
         _switcher = switcher;
@@ -398,7 +404,12 @@ public sealed class OverlayForm : Form
         _foregroundWatcher = null;
         // Solo devolvemos el foco si seguía en el overlay (si el usuario hizo clic en otra ventana, la respetamos). Si se
         // ha cerrado el juego, va al frontal (Big Picture, Playnite...) para seguir con el mando.
-        if (WindowFocus.Foreground == Handle && !(_gameClosed && ConsoleFrontend.Activate()))
+        if (_minimizedGame != IntPtr.Zero && !_gameClosed)
+        {
+            // Se había minimizado el juego para enseñar el overlay: vuelve a pantalla completa.
+            WindowFocus.RestoreMinimized(_minimizedGame);
+        }
+        else if (WindowFocus.Foreground == Handle && !(_gameClosed && ConsoleFrontend.Activate()))
         {
             WindowFocus.Restore(_previousForeground);
         }

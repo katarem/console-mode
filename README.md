@@ -152,7 +152,10 @@ Notas:
 - Mientras el panel está abierto se queda con el foco, para que A y B no lleguen también a Big Picture o al juego. Al
   cerrarlo, el foco vuelve donde estaba. Al mantener View + Menú, el juego también recibe esas pulsaciones (por
   ejemplo, puede abrir su menú de pausa).
-- No se ve encima de juegos en **pantalla completa exclusiva**. Con «ventana sin bordes» y en Big Picture sí.
+- Un juego en **pantalla completa exclusiva** dibuja directamente en la pantalla y no deja ver nada encima. En ese
+  caso Console Mode lo minimiza (como Alt+Tab), enseña el overlay y, al cerrarlo, lo restaura. Se puede desactivar en
+  *Modos → Modo Consola*. Antes de eso, prueba a dejar activadas las **optimizaciones de pantalla completa** de
+  Windows (propiedades del `.exe` → Compatibilidad): con ellas muchos juegos «exclusivos» admiten ventanas encima.
 - Se puede desactivar en *Modos → Modo Consola*. También se abre desde el menú del icono de la bandeja.
 
 ### Encender el PC a distancia
