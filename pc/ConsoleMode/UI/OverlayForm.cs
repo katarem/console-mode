@@ -1507,7 +1507,11 @@ public sealed class OverlayForm : Form
     // Posición y escalado
     // ------------------------------------------------------------------
 
-    /// <summary>Pantalla donde se está jugando (o la recién elegida como principal).</summary>
+    /// <summary>
+    /// Pantalla donde se está jugando: la recién elegida como principal desde el overlay; en modo consola, la pantalla
+    /// de la consola (aunque la ventana activa esté en otra, p. ej. un frontal que se abrió en el monitor); si no, la de
+    /// la ventana que estaba delante.
+    /// </summary>
     private Rectangle TargetArea()
     {
         if (_targetDisplayGdiName != null)
@@ -1517,6 +1521,10 @@ public sealed class OverlayForm : Form
             {
                 return target.Bounds;
             }
+        }
+        if (_switcher.State.Mode == AppMode.Console && DisplayManager.Find(_switcher.ConsoleDisplayId) is { } console)
+        {
+            return console.Bounds;
         }
         return _previousForeground != IntPtr.Zero
             ? Screen.FromHandle(_previousForeground).Bounds
