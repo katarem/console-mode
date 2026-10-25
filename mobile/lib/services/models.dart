@@ -197,3 +197,23 @@ enum PowerOffAction {
   static PowerOffAction fromWire(String? value) =>
       values.firstWhere((a) => a.wire == value, orElse: () => PowerOffAction.sleep);
 }
+
+/// Se ha pedido encender un PC y, al conectar con él, ponerlo en [mode] (null = dejarlo como esté).
+class WakeRequest {
+  WakeRequest({required this.mode, required this.requestedAt});
+
+  final PcMode? mode;
+  final DateTime requestedAt;
+
+  /// Hasta cuándo se aplica al conectar: Windows puede tardar en arrancar y en iniciar sesión (con PIN, a mano).
+  static const validFor = Duration(minutes: 15);
+
+  bool get isValid => DateTime.now().difference(requestedAt) < validFor;
+
+  Map<String, dynamic> toJson() => {'mode': mode?.wire, 'requestedAt': requestedAt.millisecondsSinceEpoch};
+
+  factory WakeRequest.fromJson(Map<String, dynamic> json) => WakeRequest(
+        mode: PcMode.fromWire(json['mode'] as String?),
+        requestedAt: DateTime.fromMillisecondsSinceEpoch((json['requestedAt'] as num).toInt()),
+      );
+}

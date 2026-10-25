@@ -156,13 +156,18 @@ Notas:
 
 La pantalla de cada PC en el móvil tiene un **botón de encendido**:
 
-- Con el PC apagado o en suspensión, lo **enciende**: envía un «paquete mágico» de Wake-on-LAN por la red local,
-  espera a que Console Mode responda (hasta 3 minutos) y lo pone en el modo elegido.
+- Mientras no hay conexión con el PC (apagado, en suspensión o aún conectando), lo **enciende**: envía un «paquete
+  mágico» de Wake-on-LAN por la red local, espera a que Console Mode responda y lo pone en el modo elegido.
 - Con el PC encendido, lo **suspende** o lo **apaga** (pide confirmación).
 
 En el icono de ajustes (arriba a la derecha) eliges, para cada PC, **en qué modo se pone al encender** (Consola, PC o
 sin cambiar) y si el botón **suspende o apaga**. Suspender es más rápido y el PC se vuelve a encender con más
-fiabilidad. También puedes enviar la señal de encendido desde el menú ⋮ de cada PC en la lista.
+fiabilidad. Ahí también está **Olvidar este PC**.
+
+El paquete de Wake-on-LAN no puede llevar el modo: lo pide el móvil al conectar con el PC, aunque el PC diga que ya
+está en ese modo (al arrancar recuerda el modo en el que se apagó, pero el frontal no está abierto). La petición se
+guarda durante 15 minutos, así que funciona aunque la app pase a segundo plano o se cierre mientras Windows arranca, o
+aunque tengas que iniciar sesión con el PIN: basta con volver a abrir la app.
 
 Para que funcione:
 
