@@ -68,11 +68,16 @@ public sealed class ModeSwitcher
         }
     }
 
-    private async Task EnterConsoleAsync(List<string> errors)
+    private Task EnterConsoleAsync(List<string> errors)
     {
         var profile = _settings.ConsoleProfile;
-        await ApplyProfileAsync(profile, errors);
+        // El frontal se abre en cuanto está la pantalla, aunque el audio (p. ej. unos auriculares Bluetooth) siga
+        // conectándose.
+        return ApplyProfileAsync(profile, errors, afterDisplay: () => OpenFrontendAsync(profile, errors));
+    }
 
+    private async Task OpenFrontendAsync(ModeProfile profile, List<string> errors)
+    {
         if (!_settings.LaunchFrontend)
         {
             return;
@@ -130,51 +135,71 @@ public sealed class ModeSwitcher
     }
 
     /// <summary>
-    /// Primero la pantalla y después el audio: la salida HDMI/DisplayPort de una TV a veces
-    /// no aparece hasta que su pantalla está activa, así que el audio se reintenta unos segundos.
-    /// La salida de comunicaciones va después de la normal, que también cambia la de comunicaciones.
+    /// Cuánto se espera a que aparezcan la pantalla y los dispositivos de audio del modo. Al encender el PC desde el
+    /// móvil, el cambio llega nada más arrancar: la TV aún está despertando por HDMI y los auriculares Bluetooth
+    /// reconectándose, y Windows rechaza el cambio o no los encuentra. Se reintenta cada segundo hasta este tiempo.
     /// </summary>
-    private static async Task ApplyProfileAsync(ModeProfile profile, List<string> errors)
+    private static readonly TimeSpan DeviceWait = TimeSpan.FromSeconds(40);
+
+    /// <summary>
+    /// La pantalla y el audio a la vez, esperando a que aparezcan. Tras la pantalla se llama a
+    /// <paramref name="afterDisplay"/> (abrir el frontal) sin esperar al audio. La salida de audio va antes que la de
+    /// comunicaciones, porque también cambia la de comunicaciones; el micrófono va por su cuenta.
+    /// </summary>
+    private static async Task ApplyProfileAsync(ModeProfile profile, List<string> errors, Func<Task>? afterDisplay = null)
     {
-        if (!string.IsNullOrEmpty(profile.DisplayId))
+        var deadline = DateTime.UtcNow + DeviceWait;
+
+        var output = Task.Run(async () => new[]
         {
-            try
-            {
-                DisplayManager.SetPrimary(profile.DisplayId);
-            }
-            catch (Exception ex)
-            {
-                errors.Add($"Pantalla ({profile.DisplayName}): {ex.Message}");
-            }
+            await RetryUntilAsync("Audio", profile.AudioDeviceId, profile.AudioDeviceName, AudioManager.SetDefaultOutput, deadline),
+            await RetryUntilAsync("Comunicaciones", profile.CommunicationsId, profile.CommunicationsName,
+                AudioManager.SetCommunicationOutput, deadline),
+        });
+        var microphone = Task.Run(() =>
+            RetryUntilAsync("Micrófono", profile.MicrophoneId, profile.MicrophoneName, AudioManager.SetDefaultInput, deadline));
+
+        var displayError = await RetryUntilAsync("Pantalla", profile.DisplayId, profile.DisplayName, DisplayManager.SetPrimary, deadline);
+        if (afterDisplay != null)
+        {
+            await afterDisplay();
         }
 
-        await ApplyAudioAsync(profile.AudioDeviceId, profile.AudioDeviceName, "Audio", AudioManager.SetDefaultOutput, errors);
-        await ApplyAudioAsync(profile.MicrophoneId, profile.MicrophoneName, "Micrófono", AudioManager.SetDefaultInput, errors);
-        await ApplyAudioAsync(profile.CommunicationsId, profile.CommunicationsName, "Comunicaciones",
-            AudioManager.SetCommunicationOutput, errors);
+        var audioErrors = (await output).Append(await microphone);
+        errors.InsertRange(0, new[] { displayError }.Concat(audioErrors).OfType<string>());
     }
 
-    private static async Task ApplyAudioAsync(string? id, string? name, string what, Action<string> apply, List<string> errors)
+    /// <summary>Aplica el cambio; si falla, lo reintenta cada segundo hasta el límite. Devuelve el error final o null.</summary>
+    private static async Task<string?> RetryUntilAsync(string what, string? id, string? name, Action<string> apply, DateTime deadline)
     {
         if (string.IsNullOrEmpty(id))
         {
-            return;
+            return null;
         }
-        for (var attempt = 1; ; attempt++)
+        var waitLogged = false;
+        while (true)
         {
             try
             {
                 apply(id);
-                return;
+                if (waitLogged)
+                {
+                    Log.Info($"{what}: {name} ya está disponible");
+                }
+                return null;
             }
             catch (Exception ex)
             {
-                if (attempt >= 8)
+                if (DateTime.UtcNow >= deadline)
                 {
-                    errors.Add($"{what} ({name}): {ex.Message}");
-                    return;
+                    return $"{what} ({name}): {ex.Message}";
                 }
-                await Task.Delay(750);
+                if (!waitLogged)
+                {
+                    Log.Info($"{what}: {name} aún no está disponible, se espera ({ex.Message})");
+                    waitLogged = true;
+                }
+                await Task.Delay(1000);
             }
         }
     }
