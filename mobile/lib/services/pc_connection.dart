@@ -135,6 +135,15 @@ class PcConnection extends ChangeNotifier {
     }
   }
 
+  /// Deja de esperar a que el PC arranque (p. ej. porque se ha reiniciado a mano o se ha quedado en la BIOS): vuelve
+  /// el botón de encender y se olvida el modo pedido.
+  Future<void> cancelWake() async {
+    if (!waking) return;
+    await _storage.clearWakeRequest(_pc.id);
+    _pendingMode = null;
+    _endWake();
+  }
+
   /// Muestra «Encendiendo…», repite la señal de vez en cuando por si se pierde y reintenta conectar a menudo.
   void _waitForWake(Duration timeout) {
     waking = true;

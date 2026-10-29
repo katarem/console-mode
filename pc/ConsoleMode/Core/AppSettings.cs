@@ -110,6 +110,15 @@ public sealed class AppSettings
     /// <summary>Minimizar los juegos en pantalla completa exclusiva para poder enseñar el overlay encima.</summary>
     public bool MinimizeExclusiveFullscreen { get; set; } = true;
 
+    /// <summary>
+    /// Modo consola inmersivo: en modo consola se ocultan al momento las ventanas que no son del frontal, una tienda de
+    /// juegos, un juego o el overlay (Spotify, Discord...). Al volver a modo PC se vuelven a ver.
+    /// </summary>
+    public bool ImmersiveConsole { get; set; }
+
+    /// <summary>Programas (sin «.exe») que también se dejan ver en el modo inmersivo, junto con lo que abran.</summary>
+    public List<string> ImmersiveAllowedPrograms { get; set; } = new();
+
     /// <summary>Buscar versiones nuevas en GitHub al arrancar y cada 12 horas.</summary>
     public bool CheckForUpdates { get; set; } = true;
 

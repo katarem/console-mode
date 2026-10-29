@@ -39,6 +39,9 @@ Tiene dos partes:
 - **Overlay con el mando**: mantén **View + Menú** durante 1 segundo en un mando Xbox para cambiar de modo, de audio,
   de micrófono o de pantalla, subir o bajar el volumen y silenciar el sonido o el micrófono desde el sofá (ver más
   abajo).
+- **Modo consola inmersivo** (opcional): en modo consola solo se ven el frontal, los juegos y el overlay. Spotify,
+  Discord y cualquier otra ventana se ocultan en cuanto aparecen, sin quitarle el foco al juego. Ver
+  [Modo consola inmersivo](#modo-consola-inmersivo).
 - **Botón de encendido en el móvil**: enciende el PC con Wake-on-LAN y lo pone en el modo que elijas, o lo suspende o
   apaga. Console Mode prepara Windows por ti (y lo deja como estaba si lo desactivas). Ver
   [Encender el PC a distancia](#encender-el-pc-a-distancia).
@@ -131,9 +134,14 @@ pequeños del centro) durante **1 segundo**. Aparece un panel en la esquina infe
 - **Volver a modo PC** (en modo consola): cierra el frontal (Big Picture, Playnite...) y vuelve a tu pantalla y tu audio del modo PC, sin
   soltar el mando.
 - **Ir a modo consola** (en modo PC): el panel se cierra y se activa el modo consola, con el frontal en la TV.
-- **Cerrar juego** (si hay un juego delante al abrir el panel): **A** dos veces lo cierra como Alt+F4. Si no se cierra
-  en unos segundos (hay juegos sin opción de salir que tampoco hacen caso), ofrece **forzar el cierre**. Después el
-  foco vuelve al frontal. Útil con Playnite u otros frontales, que no tienen el menú de Big Picture para salir del juego.
+- **Volver al juego** (en modo consola, si al abrir el panel había otra cosa delante del juego, como Spotify, Discord o
+  el escritorio): minimiza la ventana que se había colado y devuelve el foco al juego, o al frontal si no hay juego. El
+  panel se abre ya con esta opción elegida, así que basta con pulsar **A**.
+- **Cerrar juego** (si hay un juego abierto): **A** abre un diálogo en el centro de la pantalla, «¿Cerrar…?», con
+  **Sí, cerrar el juego** y **No, seguir jugando** (empieza en «No», para que un A de más no lo cierre). Si dices que sí,
+  se cierra como Alt+F4. Si no se cierra en unos segundos (hay juegos sin opción de salir que tampoco hacen caso),
+  ofrece **forzar el cierre**, también con su diálogo. Después el foco vuelve al frontal. Útil con Playnite u otros
+  frontales, que no tienen el menú de Big Picture para salir del juego.
 - **Silenciar sonido** y **Silenciar micro**: dos botones, uno al lado del otro (elige con ← →). El micrófono se
   silencia también como dispositivo de comunicaciones, así que Discord tampoco te oye.
 - **Salida de audio**, **Micrófono**, **Comunicaciones** y **Pantalla principal**: cada opción muestra solo lo elegido
@@ -158,12 +166,41 @@ Notas:
   Windows (propiedades del `.exe` → Compatibilidad): con ellas muchos juegos «exclusivos» admiten ventanas encima.
 - Se puede desactivar en *Modos → Modo Consola*. También se abre desde el menú del icono de la bandeja.
 
+### Modo consola inmersivo
+
+En *Modos → Modo Consola*, marca **Modo consola inmersivo**. Mientras estés en modo consola:
+
+- Se ven el **frontal** (Big Picture, Playnite...), las **tiendas de juegos** (Steam, Epic, EA app, Ubisoft Connect,
+  Battle.net, GOG Galaxy, Xbox), **los juegos y todo lo que abran** (lanzadores, avisos del antitrampas...) y el
+  **overlay** del mando. También el overlay de Steam, la barra de juego de Xbox, los de NVIDIA y AMD, el Administrador
+  de tareas y el resto de Windows (menú Inicio, notificaciones, teclado en pantalla).
+- Cualquier otra ventana que aparezca o se ponga delante (Spotify, Discord, un actualizador, una carpeta del
+  Explorador...) **se oculta en ese mismo momento** y el foco vuelve al juego. El programa sigue funcionando (la música
+  sigue sonando y Discord sigue conectado), solo que su ventana no se ve.
+- Al volver a **modo PC**, o al desmarcar la opción, las ventanas ocultas **vuelven a verse**.
+- **Permitir también** acepta nombres de programa separados por comas (sin `.exe`, como aparecen en el Administrador
+  de tareas) que quieres ver igualmente, junto con lo que abran. En el registro
+  (`%APPDATA%\ConsoleMode\console-mode.log`) queda apuntada cada ventana que se oculta, con el nombre de su programa.
+
+Cómo distingue un juego: es un proceso abierto por el frontal o por una tienda (o por otro proceso abierto por ellos).
+Un juego que abras desde el escritorio o desde un acceso directo no lo es: ábrelo desde el frontal o añádelo a
+*Permitir también*.
+
+Windows no deja impedir que otro programa cree ventanas sin inyectar código en todos los procesos (los antitrampas lo
+detectan y lo castigan), así que Console Mode reacciona al aviso que da Windows cuando una ventana se muestra o pasa a
+primer plano. Llega en milisegundos y lo normal es que la ventana ni se llegue a ver, pero alguna puede asomar un
+instante. Las notificaciones de Windows no se ocultan: para eso activa **No molestar** en Windows (Configuración →
+Sistema → Notificaciones), con la regla automática «al jugar a un juego» o «al usar una aplicación en modo de pantalla
+completa».
+
 ### Encender el PC a distancia
 
 La pantalla de cada PC en el móvil tiene un **botón de encendido**:
 
 - Mientras no hay conexión con el PC (apagado, en suspensión o aún conectando), lo **enciende**: envía un «paquete
   mágico» de Wake-on-LAN por la red local, espera a que Console Mode responda y lo pone en el modo elegido.
+- Mientras espera a que arranque («Encendiendo…»), el botón sigue activo: si reinicias el PC a mano o no llega a
+  Windows, púlsalo para **volver a enviar la señal**. Con **Dejar de esperar** vuelve el botón normal.
 - Con el PC encendido, lo **suspende** o lo **apaga** (pide confirmación).
 
 En el icono de ajustes (arriba a la derecha) eliges, para cada PC, **en qué modo se pone al encender** (Consola, PC o
@@ -311,7 +348,7 @@ encima y habrá que desinstalar la app. Si faltan los secretos, la release se pu
 ```
 pc/ConsoleMode/
   Core/       Configuración, cambio de modo, inicio con Windows, encendido a distancia y log
-  Native/     Pantallas, audio, frontales (Big Picture, Playnite...) y energía (Win32 / COM)
+  Native/     Pantallas, audio, frontales (Big Picture, Playnite...), modo inmersivo y energía (Win32 / COM)
   Network/    Servidor TCP, emparejamiento y descubrimiento UDP
   UI/         Ventana principal, icono de bandeja y diálogo de emparejamiento
 mobile/lib/

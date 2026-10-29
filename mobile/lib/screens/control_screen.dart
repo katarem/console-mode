@@ -144,6 +144,12 @@ class _StatusBanner extends StatelessWidget {
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall,
           ),
+          const SizedBox(height: 4),
+          TextButton.icon(
+            onPressed: c.cancelWake,
+            icon: const Icon(Icons.close),
+            label: const Text('Dejar de esperar'),
+          ),
         ] else if (c.status == ConnectionStatus.offline) ...[
           const SizedBox(height: 8),
           TextButton.icon(
@@ -370,7 +376,8 @@ class _PowerButton extends StatelessWidget {
     final VoidCallback? onPressed;
     String? hint;
     if (c.waking) {
-      (label, color, onPressed) = ('Encendiendo…', theme.colorScheme.tertiary, null);
+      // Sigue activo: si el PC se ha reiniciado a mano o no ha llegado a Windows, se puede volver a encender.
+      (label, color, onPressed) = ('Encendiendo… · pulsa para reenviar', theme.colorScheme.tertiary, c.wake);
     } else if (c.poweringOff) {
       (label, color, onPressed) = ('${c.pc.powerOff.progress}…', theme.colorScheme.outline, null);
     } else if (connected) {
