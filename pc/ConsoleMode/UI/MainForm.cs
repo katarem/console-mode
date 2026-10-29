@@ -44,12 +44,15 @@ public sealed class MainForm : Form
         MaximumSize = new Size(520, 0),
         Margin = new Padding(22, 0, 3, 3),
     };
-    private readonly CheckBox _immersive = new()
+    private readonly CheckBox _immersive = new() { Text = "Modo consola inmersivo: solo se ven el frontal, los juegos y el overlay", AutoSize = true };
+    private readonly Label _immersiveHint = new()
     {
-        Text = "Modo consola inmersivo: solo se ven el frontal, los juegos (y lo que abran) y el overlay. Spotify, Discord " +
-               "y las demás ventanas se ocultan en cuanto aparecen y vuelven a verse en modo PC",
+        Text = "Spotify, Discord y cualquier ventana que no sea de un juego o de una tienda se ocultan en cuanto aparecen " +
+               "y vuelven a verse al pasar a modo PC.",
         AutoSize = true,
-        MaximumSize = new Size(520, 0),
+        MaximumSize = new Size(500, 0),
+        ForeColor = Color.DimGray,
+        Margin = new Padding(22, 0, 3, 3),
     };
     private readonly Label _immersiveAllowedLabel = new() { Text = "Permitir también:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(22, 6, 8, 6) };
     private readonly TextBox _immersiveAllowed = new()
@@ -221,6 +224,8 @@ public sealed class MainForm : Form
         consoleGrid.SetColumnSpan(_minimizeExclusive, 2);
         consoleGrid.Controls.Add(_immersive);
         consoleGrid.SetColumnSpan(_immersive, 2);
+        consoleGrid.Controls.Add(_immersiveHint);
+        consoleGrid.SetColumnSpan(_immersiveHint, 2);
         consoleGrid.Controls.Add(_immersiveAllowedLabel);
         consoleGrid.Controls.Add(_immersiveAllowed);
         consoleGroup.Controls.Add(consoleGrid);

@@ -36,6 +36,7 @@ public sealed class TrayApplicationContext : ApplicationContext
 
         Settings = AppSettings.Load();
         ConsoleFrontend.Init(Settings);
+        GameProcesses.Init(Settings);
         _ = Task.Run(StartupManager.RefreshPathIfEnabled); // usa schtasks: que no retrase el arranque
         AppIcon = LoadIcon();
 
@@ -241,31 +242,24 @@ public sealed class TrayApplicationContext : ApplicationContext
     }
 
     /// <summary>
-    /// El modo inmersivo vigila las ventanas solo en modo consola, cuando ya se ha terminado de entrar en él (con el
-    /// frontal abierto). Al volver a modo PC, lo que se ocultó vuelve a verse.
+    /// En modo consola se siguen los procesos de los juegos (para el modo inmersivo y para «Volver al juego» en el
+    /// overlay). El modo inmersivo vigila las ventanas solo en modo consola, cuando ya se ha terminado de entrar en él
+    /// (con el frontal abierto). Al volver a modo PC, lo que se ocultó vuelve a verse.
     /// </summary>
     private void UpdateImmersiveGuard(ModeState state)
     {
-        var active = Settings.ImmersiveConsole && state.Mode == AppMode.Console;
-        if (active && _immersive == null)
-        {
-            _immersive = new ImmersiveGuard(ImmersiveAllowedPrograms);
-        }
-        else if (!active && _immersive != null)
+        var console = state.Mode == AppMode.Console;
+        var active = Settings.ImmersiveConsole && console;
+        if (!active && _immersive != null)
         {
             _immersive.Dispose();
             _immersive = null;
         }
-    }
-
-    private IEnumerable<string> ImmersiveAllowedPrograms()
-    {
-        List<string> extra;
-        lock (Settings)
+        GameProcesses.SetTracking(console);
+        if (active && _immersive == null)
         {
-            extra = Settings.ImmersiveAllowedPrograms.ToList();
+            _immersive = new ImmersiveGuard();
         }
-        return ImmersiveGuard.DefaultAllowedPrograms.Concat(ConsoleFrontend.ProcessNames).Concat(extra);
     }
 
     public void ToggleOverlay()
@@ -380,6 +374,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         _deviceWatcher?.Dispose();
         _immersive?.Dispose();
         _immersive = null;
+        GameProcesses.SetTracking(false);
         _updateTimer.Dispose();
         _overlay?.Close();
         _form?.Close();

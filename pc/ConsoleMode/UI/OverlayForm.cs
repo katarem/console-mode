@@ -50,6 +50,8 @@ public sealed class OverlayForm : Form
     private const string GlyphChevron = "\uE76C";
     private const string GlyphCheck = "\uE73E";
     private const string GlyphClose = "\uE711";
+    private const string GlyphPlay = "\uE768";
+    private const string GlyphBack = "\uE72B";
 
     private static readonly TimeSpan IdleClose = TimeSpan.FromSeconds(20);
     private const int VolumeStep = 5;
@@ -66,6 +68,7 @@ public sealed class OverlayForm : Form
     private enum RowKind
     {
         SwitchMode,
+        ReturnToGame,
         CloseGame,
         MuteToggles,
         Picker,
@@ -96,11 +99,20 @@ public sealed class OverlayForm : Form
     private readonly string _previousProcess;
 
     // Juego que estaba delante al abrir el overlay (null si era el frontal, el escritorio...). Cerrarlo pide confirmación
-    // (A dos veces); si no se cierra por las buenas, se ofrece forzar el cierre.
+    // en un diálogo; si no se cierra por las buenas, se ofrece forzar el cierre.
     private readonly GameWindow? _game;
     private readonly IntPtr _minimizedGame;
-    private DateTime _closeArmedUntil;
     private bool _offerForceClose;
+
+    // En modo consola, ventana del juego (o del frontal) a la que volver si al abrir el overlay había otra cosa delante
+    // (Spotify, Discord, el escritorio...). IntPtr.Zero si delante ya estaba el juego.
+    private readonly IntPtr _returnTarget;
+    private bool _returnRequested;
+
+    // Diálogo «¿Cerrar el juego?» en el centro de la pantalla: sus dos opciones y la elegida (empieza en «No»).
+    private bool _confirmClose;
+    private readonly List<Row> _confirmRows = new();
+    private int _confirmSelected;
     private bool _gameClosed;
     private readonly System.Windows.Forms.Timer _releaseTimer = new() { Interval = 20 };
     private readonly System.Diagnostics.Stopwatch _releaseClock = new();
@@ -156,7 +168,16 @@ public sealed class OverlayForm : Form
         _minimizedGame = minimizedGame;
         _previousForeground = minimizedGame != IntPtr.Zero ? minimizedGame : WindowFocus.Foreground;
         _previousProcess = WindowFocus.ProcessNameOf(_previousForeground);
-        _game = GameWindow.FromWindow(_previousForeground);
+        if (minimizedGame == IntPtr.Zero && switcher.State.Mode == AppMode.Console)
+        {
+            // Si lo que está delante no es ni el juego ni el frontal, se ofrece volver al que haya debajo.
+            var isGame = GameProcesses.Checker();
+            if (!GameProcesses.IsGameWindow(_previousForeground, isGame))
+            {
+                _returnTarget = GameProcesses.FindGameWindow(isGame);
+            }
+        }
+        _game = GameWindow.FromWindow(_returnTarget != IntPtr.Zero ? _returnTarget : _previousForeground);
         _switcher = switcher;
         _inputHeld = inputHeld;
 
@@ -221,6 +242,31 @@ public sealed class OverlayForm : Form
         }
         _idleTimer.Stop();
         _idleTimer.Start();
+
+        if (_confirmClose)
+        {
+            switch (action)
+            {
+                case PadAction.Up:
+                case PadAction.Left:
+                    SelectConfirm(_confirmSelected - 1);
+                    break;
+                case PadAction.Down:
+                case PadAction.Right:
+                    SelectConfirm(_confirmSelected + 1);
+                    break;
+                case PadAction.Accept:
+                    AnswerCloseConfirm();
+                    break;
+                case PadAction.Back:
+                    CloseConfirm();
+                    break;
+                case PadAction.ToggleOverlay:
+                    CloseWhenReleased();
+                    break;
+            }
+            return;
+        }
 
         if (_picker != null)
         {
@@ -358,6 +404,12 @@ public sealed class OverlayForm : Form
             return;
         }
 
+        if (_confirmClose)
+        {
+            SelectConfirm(index);
+            HandleAction(PadAction.Accept);
+            return;
+        }
         if (_picker != null)
         {
             SelectOption(index);
@@ -404,7 +456,11 @@ public sealed class OverlayForm : Form
         _foregroundWatcher = null;
         // Solo devolvemos el foco si seguía en el overlay (si el usuario hizo clic en otra ventana, la respetamos). Si se
         // ha cerrado el juego, va al frontal (Big Picture, Playnite...) para seguir con el mando.
-        if (_minimizedGame != IntPtr.Zero && !_gameClosed)
+        if (_returnRequested && !_gameClosed)
+        {
+            WindowFocus.Activate(_returnTarget);
+        }
+        else if (_minimizedGame != IntPtr.Zero && !_gameClosed)
         {
             // Se había minimizado el juego para enseñar el overlay: vuelve a pantalla completa.
             WindowFocus.RestoreMinimized(_minimizedGame);
@@ -464,6 +520,11 @@ public sealed class OverlayForm : Form
                     ConsoleFrontend.LaunchesOnConsoleMode ? $"Abre {ConsoleFrontend.Name} en la pantalla de la consola" : "Aplica el modo consola", GlyphGame,
                     ConsoleColor, Target: AppMode.Console));
         }
+        if (_returnTarget != IntPtr.Zero && !_gameClosed)
+        {
+            _rows.Add(new Row(RowKind.ReturnToGame, "return", "Volver al juego",
+                _game?.Name ?? ConsoleFrontend.Name, GlyphPlay, ConsoleColor));
+        }
         if (_game != null && !_gameClosed)
         {
             _rows.Add(new Row(RowKind.CloseGame, "close-game", _offerForceClose ? "Forzar cierre del juego" : "Cerrar juego",
@@ -497,8 +558,13 @@ public sealed class OverlayForm : Form
         var index = _rows.FindIndex(r => r.Key == selectedKey);
         if (index < 0)
         {
-            // Se empieza en la salida de audio (nunca en el cambio de modo, para que un A sin querer no cambie de modo).
-            index = Math.Max(0, _rows.FindIndex(r => r.Key == "audio"));
+            // Se empieza en «Volver al juego» si se ofrece (seguramente se ha abierto el overlay para eso) o en la salida
+            // de audio (nunca en el cambio de modo, para que un A sin querer no cambie de modo).
+            index = _rows.FindIndex(r => r.Key == "return");
+            if (index < 0)
+            {
+                index = Math.Max(0, _rows.FindIndex(r => r.Key == "audio"));
+            }
         }
         _selected = Math.Clamp(index, 0, Math.Max(0, _rows.Count - 1));
     }
@@ -509,7 +575,7 @@ public sealed class OverlayForm : Form
     /// </summary>
     public void RefreshDevices()
     {
-        if (IsDisposed || _picker != null || _busy || _closing)
+        if (IsDisposed || _picker != null || _confirmClose || _busy || _closing)
         {
             return;
         }
@@ -521,7 +587,7 @@ public sealed class OverlayForm : Form
     /// <summary>El volumen también se puede cambiar con el teclado o desde Windows: se vuelve a leer cada segundo.</summary>
     private void RefreshVolumes()
     {
-        if (_picker != null || _busy || _closing)
+        if (_picker != null || _confirmClose || _busy || _closing)
         {
             return;
         }
@@ -557,7 +623,16 @@ public sealed class OverlayForm : Form
         Invalidate();
     }
 
-    private int SelectedItem => _picker != null ? _optionSelected : _selected;
+    private void SelectConfirm(int index)
+    {
+        _confirmSelected = Math.Clamp(index, 0, _confirmRows.Count - 1);
+        Invalidate();
+    }
+
+    private int SelectedItem => _confirmClose ? _confirmSelected : _picker != null ? _optionSelected : _selected;
+
+    /// <summary>El diálogo de confirmación y las listas van en el centro de la pantalla; la vista principal, en la esquina.</summary>
+    private bool Centered => _picker != null || _confirmClose;
 
     /// <summary>Desplaza la lista para que el elemento elegido se vea.</summary>
     private void ScrollToSelected()
@@ -692,7 +767,10 @@ public sealed class OverlayForm : Form
                 OpenPicker(row.Picker);
                 return;
             case RowKind.CloseGame:
-                _ = CloseGameAsync();
+                OpenCloseConfirm();
+                return;
+            case RowKind.ReturnToGame:
+                ReturnToGame();
                 return;
         }
 
@@ -721,8 +799,67 @@ public sealed class OverlayForm : Form
     }
 
     /// <summary>
-    /// Cierra el juego que estaba delante: A una vez pide confirmación y A otra vez lo cierra como Alt+F4. Si no se
-    /// cierra en unos segundos (hay juegos que no hacen caso, o preguntan), se ofrece forzar el cierre.
+    /// Vuelve al juego (o al frontal) que había debajo: la ventana que se había puesto delante se minimiza para que no lo
+    /// vuelva a tapar (el escritorio y la barra de tareas no se tocan) y, al cerrarse el overlay, el foco va al juego.
+    /// </summary>
+    private void ReturnToGame()
+    {
+        Log.Info($"Overlay: volver a {WindowFocus.Describe(_returnTarget)}; delante estaba {WindowFocus.Describe(_previousForeground)}");
+        var intruder = _previousForeground;
+        if (intruder != IntPtr.Zero && !string.Equals(WindowFocus.ProcessNameOf(intruder), "explorer", StringComparison.OrdinalIgnoreCase))
+        {
+            GetWindowThreadProcessId(intruder, out var pid);
+            if (pid != Environment.ProcessId)
+            {
+                WindowFocus.Minimize(intruder);
+            }
+        }
+        _returnRequested = true;
+        CloseWhenReleased();
+    }
+
+    /// <summary>Pregunta en el centro de la pantalla si se cierra (o se fuerza el cierre de) el juego.</summary>
+    private void OpenCloseConfirm()
+    {
+        if (_game == null)
+        {
+            return;
+        }
+        _confirmRows.Clear();
+        _confirmRows.Add(_offerForceClose
+            ? new Row(RowKind.CloseGame, "confirm-yes", "Sí, forzar el cierre", "Se termina al momento", GlyphClose, CloseGameColor)
+            : new Row(RowKind.CloseGame, "confirm-yes", "Sí, cerrar el juego", "Como Alt+F4", GlyphClose, CloseGameColor));
+        _confirmRows.Add(new Row(RowKind.SwitchMode, "confirm-no", "No, seguir jugando", "Vuelve al overlay", GlyphBack, MutedOffColor));
+        _confirmSelected = 1; // «No»: un A de más no cierra el juego
+        _confirmClose = true;
+        _scroll = 0;
+        _status = "";
+        Relayout();
+        Place();
+    }
+
+    private void CloseConfirm()
+    {
+        _confirmClose = false;
+        _scroll = 0;
+        Relayout();
+        Place();
+        GrabFocus();
+    }
+
+    private void AnswerCloseConfirm()
+    {
+        var yes = _confirmSelected == 0;
+        CloseConfirm();
+        if (yes)
+        {
+            _ = CloseGameAsync();
+        }
+    }
+
+    /// <summary>
+    /// Cierra el juego que estaba delante (ya confirmado) como Alt+F4. Si no se cierra en unos segundos (hay juegos que
+    /// no hacen caso, o preguntan), se ofrece forzar el cierre.
     /// </summary>
     private async Task CloseGameAsync()
     {
@@ -730,14 +867,7 @@ public sealed class OverlayForm : Form
         {
             return;
         }
-        if (DateTime.UtcNow > _closeArmedUntil)
-        {
-            _closeArmedUntil = DateTime.UtcNow + TimeSpan.FromSeconds(4);
-            SetStatus(_offerForceClose ? $"Pulsa A otra vez para forzar el cierre de {game.Name}" : $"Pulsa A otra vez para cerrar {game.Name}");
-            return;
-        }
 
-        _closeArmedUntil = DateTime.MinValue;
         _busy = true;
         _idleTimer.Stop();
         try
@@ -766,7 +896,7 @@ public sealed class OverlayForm : Form
             }
 
             _offerForceClose = true;
-            SetStatus($"{game.Name} no se ha cerrado. Pulsa A dos veces para forzar el cierre.", error: true);
+            SetStatus($"{game.Name} no se ha cerrado. Elige «Forzar cierre del juego».", error: true);
         }
         catch (Exception ex)
         {
@@ -904,7 +1034,15 @@ public sealed class OverlayForm : Form
         int contentWidth;
         int itemHeight;
         int count;
-        if (_picker == null)
+        var subtitleLines = 1;
+        if (_confirmClose)
+        {
+            contentWidth = Px(520);
+            itemHeight = Math.Max(Px(62), f.Small.Height + f.Row.Height + Px(20));
+            count = _confirmRows.Count;
+            subtitleLines = 2;
+        }
+        else if (_picker == null)
         {
             contentWidth = Px(470);
             itemHeight = Math.Max(Px(62), f.Small.Height + f.Row.Height + Px(20));
@@ -922,7 +1060,7 @@ public sealed class OverlayForm : Form
         var y = padY;
         _titleRect = new Rectangle(padX, y, contentWidth, f.Title.Height + Px(4));
         y = _titleRect.Bottom;
-        _subtitleRect = new Rectangle(padX, y, contentWidth, f.Small.Height + Px(2));
+        _subtitleRect = new Rectangle(padX, y + (subtitleLines > 1 ? Px(6) : 0), contentWidth, f.Small.Height * subtitleLines + Px(2));
         y = _subtitleRect.Bottom + Px(14);
 
         var listTop = y;
@@ -996,7 +1134,21 @@ public sealed class OverlayForm : Form
         var f = _fonts;
 
         // ----- Cabecera -----
-        if (_picker is { } picker)
+        if (_confirmClose && _game is { } game)
+        {
+            var chip = new Rectangle(_titleRect.Left, _titleRect.Top + (_titleRect.Height - Px(30)) / 2, Px(30), Px(30));
+            DrawChip(g, chip, GlyphClose, CloseGameColor, f.IconSmall);
+            TextRenderer.DrawText(g, _offerForceClose ? $"¿Forzar el cierre de {game.Name}?" : $"¿Cerrar {game.Name}?", f.Title,
+                Rectangle.FromLTRB(chip.Right + Px(12), _titleRect.Top, _titleRect.Right, _titleRect.Bottom), TextColor,
+                TextFlags | TextFormatFlags.EndEllipsis);
+            TextRenderer.DrawText(g, _offerForceClose
+                    ? "El juego no responde. Se cerrará al momento y perderás lo que no hayas guardado."
+                    : "Se cerrará como con Alt+F4. Lo que no hayas guardado puede perderse.",
+                f.Small, _subtitleRect, MutedColor,
+                TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix |
+                TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+        }
+        else if (_picker is { } picker)
         {
             var (title, glyph, color) = PickerInfo(picker);
             var chip = new Rectangle(_titleRect.Left, _titleRect.Top + (_titleRect.Height - Px(30)) / 2, Px(30), Px(30));
@@ -1022,7 +1174,11 @@ public sealed class OverlayForm : Form
             {
                 continue;
             }
-            if (_picker != null)
+            if (_confirmClose)
+            {
+                DrawRow(g, f, _confirmRows[i], bounds, i == _confirmSelected);
+            }
+            else if (_picker != null)
             {
                 DrawOption(g, f, _options[i], bounds, i == _optionSelected);
             }
@@ -1071,6 +1227,7 @@ public sealed class OverlayForm : Form
         switch (row.Kind)
         {
             case RowKind.SwitchMode:
+            case RowKind.ReturnToGame:
             case RowKind.CloseGame:
                 DrawChip(g, chip, row.Glyph, row.Color, f.Icon);
                 var middle = bounds.Top + bounds.Height / 2;
@@ -1212,7 +1369,13 @@ public sealed class OverlayForm : Form
     private void DrawHints(Graphics g, Fonts f)
     {
         var hints = new List<(string? Button, Color Color, string Text)>();
-        if (_picker != null)
+        if (_confirmClose)
+        {
+            hints.Add(("A", Color.FromArgb(16, 124, 16), "Elegir"));
+            hints.Add(("B", Color.FromArgb(200, 40, 40), "Cancelar"));
+            hints.Add((null, Color.Empty, "↑↓  Moverse"));
+        }
+        else if (_picker != null)
         {
             hints.Add(("A", Color.FromArgb(16, 124, 16), "Elegir"));
             hints.Add(("B", Color.FromArgb(200, 40, 40), "Volver"));
@@ -1226,6 +1389,7 @@ public sealed class OverlayForm : Form
                 RowKind.Volume => VolumeOf(row.Flow)?.Muted == true ? "Activar" : "Silenciar",
                 RowKind.MuteToggles => "Activar / silenciar",
                 RowKind.CloseGame => _offerForceClose ? "Forzar cierre" : "Cerrar",
+                RowKind.ReturnToGame => "Volver",
                 _ => "Elegir",
             }));
             hints.Add(("B", Color.FromArgb(200, 40, 40), "Cerrar"));
@@ -1536,7 +1700,7 @@ public sealed class OverlayForm : Form
     private void Place()
     {
         var area = TargetArea();
-        if (_picker != null)
+        if (Centered)
         {
             Location = new Point(area.Left + (area.Width - Width) / 2, area.Top + (area.Height - Height) / 2);
             return;
@@ -1577,6 +1741,9 @@ public sealed class OverlayForm : Form
         public int X;
         public int Y;
     }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
