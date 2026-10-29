@@ -49,6 +49,32 @@ public static class WindowFocus
         return GetForegroundWindow() == hwnd;
     }
 
+    /// <summary>
+    /// Pone la ventana delante sin dejarla «siempre encima» (para devolver el foco a un juego). Usa la misma pulsación de
+    /// Alt que <see cref="ForceForeground"/> para que Windows lo permita desde segundo plano.
+    /// </summary>
+    public static void Activate(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero || !IsWindow(hwnd) || GetForegroundWindow() == hwnd)
+        {
+            return;
+        }
+        if (IsIconic(hwnd))
+        {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+        keybd_event(VK_MENU, 0, KEYEVENTF_EXTENDEDKEY, UIntPtr.Zero);
+        keybd_event(VK_MENU, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, UIntPtr.Zero);
+        SetForegroundWindow(hwnd);
+    }
+
+    /// <summary>Clase de la ventana (p. ej. «CabinetWClass» para una carpeta del Explorador).</summary>
+    public static string ClassNameOf(IntPtr hwnd)
+    {
+        var className = new StringBuilder(256);
+        return GetClassName(hwnd, className, className.Capacity) > 0 ? className.ToString() : "";
+    }
+
     /// <summary>Nombre del proceso dueño de la ventana (sin «.exe»), o cadena vacía si no se puede saber.</summary>
     public static string ProcessNameOf(IntPtr hwnd)
     {
@@ -132,6 +158,9 @@ public static class WindowFocus
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hwnd, int cmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hwnd);
 
     private const byte VK_MENU = 0x12;
     private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;

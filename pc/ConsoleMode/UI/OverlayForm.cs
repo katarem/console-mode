@@ -1437,7 +1437,8 @@ public sealed class OverlayForm : Form
         return process.Length == 0 ||
                string.Equals(process, _previousProcess, StringComparison.OrdinalIgnoreCase) ||
                SteamProcesses.Contains(process) ||
-               ConsoleFrontend.ProcessNames.Contains(process, StringComparer.OrdinalIgnoreCase);
+               ConsoleFrontend.ProcessNames.Contains(process, StringComparer.OrdinalIgnoreCase) ||
+               ImmersiveGuard.Hides(hwnd); // el modo inmersivo la oculta enseguida: no hay que cerrar el overlay
     }
 
     private static readonly HashSet<string> SteamProcesses = new(StringComparer.OrdinalIgnoreCase)

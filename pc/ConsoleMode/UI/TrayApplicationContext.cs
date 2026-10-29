@@ -26,6 +26,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     private OverlayForm? _overlay;
     private DeviceWatcher? _deviceWatcher;
     private bool _overlayPending;
+    private ImmersiveGuard? _immersive;
 
     public TrayApplicationContext(bool showWindow, bool afterUpdate = false)
     {
@@ -68,6 +69,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
 
         SetGamepadOverlayEnabled(Settings.GamepadOverlayEnabled);
+        UpdateImmersiveGuard(Switcher.State);
 
         // Pantallas o audio nuevos (o quitados): se actualizan la ventana, el overlay y los móviles sin reiniciar.
         try
@@ -227,6 +229,45 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
+    /// <summary>Activa o desactiva el modo consola inmersivo (solo actúa mientras se está en modo consola).</summary>
+    public void SetImmersiveConsole(bool enabled)
+    {
+        lock (Settings)
+        {
+            Settings.ImmersiveConsole = enabled;
+            Settings.Save();
+        }
+        UpdateImmersiveGuard(Switcher.State);
+    }
+
+    /// <summary>
+    /// El modo inmersivo vigila las ventanas solo en modo consola, cuando ya se ha terminado de entrar en él (con el
+    /// frontal abierto). Al volver a modo PC, lo que se ocultó vuelve a verse.
+    /// </summary>
+    private void UpdateImmersiveGuard(ModeState state)
+    {
+        var active = Settings.ImmersiveConsole && state.Mode == AppMode.Console;
+        if (active && _immersive == null)
+        {
+            _immersive = new ImmersiveGuard(ImmersiveAllowedPrograms);
+        }
+        else if (!active && _immersive != null)
+        {
+            _immersive.Dispose();
+            _immersive = null;
+        }
+    }
+
+    private IEnumerable<string> ImmersiveAllowedPrograms()
+    {
+        List<string> extra;
+        lock (Settings)
+        {
+            extra = Settings.ImmersiveAllowedPrograms.ToList();
+        }
+        return ImmersiveGuard.DefaultAllowedPrograms.Concat(ConsoleFrontend.ProcessNames).Concat(extra);
+    }
+
     public void ToggleOverlay()
     {
         if (_overlay != null && !_overlay.IsDisposed)
@@ -337,6 +378,8 @@ public sealed class TrayApplicationContext : ApplicationContext
         Discovery.Dispose();
         _gamepad?.Dispose();
         _deviceWatcher?.Dispose();
+        _immersive?.Dispose();
+        _immersive = null;
         _updateTimer.Dispose();
         _overlay?.Close();
         _form?.Close();
@@ -347,6 +390,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     private void OnStateChanged(ModeState state)
     {
         UpdateTray(state);
+        UpdateImmersiveGuard(state);
         _form?.UpdateModeState(state);
         if (state.Error != null)
         {

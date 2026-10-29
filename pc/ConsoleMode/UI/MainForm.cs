@@ -44,6 +44,20 @@ public sealed class MainForm : Form
         MaximumSize = new Size(520, 0),
         Margin = new Padding(22, 0, 3, 3),
     };
+    private readonly CheckBox _immersive = new()
+    {
+        Text = "Modo consola inmersivo: solo se ven el frontal, los juegos (y lo que abran) y el overlay. Spotify, Discord " +
+               "y las demás ventanas se ocultan en cuanto aparecen y vuelven a verse en modo PC",
+        AutoSize = true,
+        MaximumSize = new Size(520, 0),
+    };
+    private readonly Label _immersiveAllowedLabel = new() { Text = "Permitir también:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(22, 6, 8, 6) };
+    private readonly TextBox _immersiveAllowed = new()
+    {
+        Dock = DockStyle.Fill,
+        Margin = new Padding(3, 3, 3, 6),
+        PlaceholderText = "Nombres de programa separados por comas (p. ej. Spotify)",
+    };
     private readonly CheckBox _gamepadOverlay = new()
     {
         Text = "Overlay con el mando: mantén View + Menú 1 s para cambiar audio y pantalla",
@@ -205,6 +219,10 @@ public sealed class MainForm : Form
         consoleGrid.SetColumnSpan(_gamepadOverlay, 2);
         consoleGrid.Controls.Add(_minimizeExclusive);
         consoleGrid.SetColumnSpan(_minimizeExclusive, 2);
+        consoleGrid.Controls.Add(_immersive);
+        consoleGrid.SetColumnSpan(_immersive, 2);
+        consoleGrid.Controls.Add(_immersiveAllowedLabel);
+        consoleGrid.Controls.Add(_immersiveAllowed);
         consoleGroup.Controls.Add(consoleGrid);
 
         var refresh = new Button { Text = "Actualizar pantallas y audio", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
@@ -282,6 +300,19 @@ public sealed class MainForm : Form
         _moveFrontend.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.MoveFrontendToConsoleDisplay = _moveFrontend.Checked);
         _closeFrontend.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.CloseFrontendOnPcMode = _closeFrontend.Checked);
         _minimizeExclusive.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.MinimizeExclusiveFullscreen = _minimizeExclusive.Checked);
+        _immersive.CheckedChanged += (_, _) =>
+        {
+            _immersiveAllowedLabel.Enabled = _immersiveAllowed.Enabled = _immersive.Checked;
+            if (!_loading)
+            {
+                _app.SetImmersiveConsole(_immersive.Checked);
+            }
+        };
+        _immersiveAllowed.TextChanged += (_, _) => SaveIfNotLoading(() =>
+            Settings.ImmersiveAllowedPrograms = _immersiveAllowed.Text
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(name => name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name)
+                .ToList());
         _gamepadOverlay.CheckedChanged += (_, _) =>
         {
             if (!_loading)
@@ -723,6 +754,9 @@ public sealed class MainForm : Form
             _closeFrontend.Checked = Settings.CloseFrontendOnPcMode;
             _gamepadOverlay.Checked = Settings.GamepadOverlayEnabled;
             _minimizeExclusive.Checked = Settings.MinimizeExclusiveFullscreen;
+            _immersive.Checked = Settings.ImmersiveConsole;
+            _immersiveAllowedLabel.Enabled = _immersiveAllowed.Enabled = Settings.ImmersiveConsole;
+            _immersiveAllowed.Text = string.Join(", ", Settings.ImmersiveAllowedPrograms);
             _showTray.Checked = Settings.ShowTrayIcon;
             _startWithWindows.Checked = StartupManager.IsEnabled;
             _port.Value = Math.Clamp(Settings.Port, (int)_port.Minimum, (int)_port.Maximum);
