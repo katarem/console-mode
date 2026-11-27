@@ -7,13 +7,6 @@ using Microsoft.Win32;
 namespace ConsoleMode.Native;
 
 /// <summary>Programa que se abre en la TV al entrar en modo consola.</summary>
-public enum FrontendKind
-{
-    SteamBigPicture,
-    Playnite,
-    Custom,
-}
-
 /// <summary>
 /// El «frontal» del modo consola: Steam Big Picture, Playnite en pantalla completa u otro programa (LaunchBox Big Box,
 /// EmulationStation, un launcher propio...). Se abre al entrar en modo consola, se coloca en la pantalla de la consola y

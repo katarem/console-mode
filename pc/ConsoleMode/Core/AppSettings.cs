@@ -141,6 +141,11 @@ public sealed class AppSettings
 
     private static readonly object FileLock = new();
 
+    /// <summary>Reads settings.json content. Throws when it is not valid JSON for these settings.</summary>
+    public static AppSettings? FromJson(string json) => JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
+
+    public string ToJson() => JsonSerializer.Serialize(this, JsonOptions);
+
     public static AppSettings Load()
     {
         lock (FileLock)
@@ -149,8 +154,7 @@ public sealed class AppSettings
             {
                 if (File.Exists(FilePath))
                 {
-                    var json = File.ReadAllText(FilePath);
-                    var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
+                    var settings = FromJson(File.ReadAllText(FilePath));
                     if (settings != null)
                     {
                         return settings;
@@ -174,7 +178,7 @@ public sealed class AppSettings
         {
             System.IO.Directory.CreateDirectory(Directory);
             var tmp = FilePath + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(this, JsonOptions));
+            File.WriteAllText(tmp, ToJson());
             File.Move(tmp, FilePath, overwrite: true);
         }
     }

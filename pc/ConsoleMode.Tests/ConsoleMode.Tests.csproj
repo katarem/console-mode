@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Unit tests for the pure logic of the PC app. They compile the app's source files that do not depend on WinForms,
+    WPF or P/Invoke (linked below) instead of referencing the app, whose desktop framework does not exist on Linux:
+    this way the tests run in the Linux development environment as well as in the Windows CI.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\ConsoleMode\Core\AppSettings.cs" Link="App\AppSettings.cs" />
+    <Compile Include="..\ConsoleMode\Core\ControllerBattery.cs" Link="App\ControllerBattery.cs" />
+    <Compile Include="..\ConsoleMode\Core\GamepadNavigator.cs" Link="App\GamepadNavigator.cs" />
+    <Compile Include="..\ConsoleMode\Core\Log.cs" Link="App\Log.cs" />
+    <Compile Include="..\ConsoleMode\Native\FrontendKind.cs" Link="App\FrontendKind.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
