@@ -11,7 +11,11 @@
             <NavigationViewItem Content="Inicio" Icon="Home" IsSelected="True" />
             <NavigationViewItem Content="Modos" Icon="TwoPage" />
             <NavigationViewItem Content="Móviles" Icon="CellPhone" />
-            <NavigationViewItem Content="Encendido" Icon="Power" />
+            <NavigationViewItem Content="Encendido">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE7E8;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
         </NavigationView.MenuItems>
         <StackPanel Padding="24" Spacing="12">
             <TextBlock Text="Console Mode" Style="{StaticResource TitleTextBlockStyle}" />
