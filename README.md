@@ -37,8 +37,8 @@ Tiene dos partes:
   es opcional.
 - **Iniciar con Windows** (opcional), directamente en segundo plano.
 - **Overlay con el mando**: mantén **View + Menú** durante medio segundo en un mando Xbox para cambiar de modo, de audio,
-  de micrófono o de pantalla, subir o bajar el volumen y silenciar el sonido o el micrófono desde el sofá (ver más
-  abajo).
+  de micrófono o de pantalla, subir o bajar el volumen, silenciar el sonido o el micrófono, activar el modo inmersivo y
+  suspender, reiniciar o apagar el PC desde el sofá. Muestra también la hora y la batería del mando (ver más abajo).
 - **Modo consola inmersivo** (opcional): en modo consola solo se ven el frontal, los juegos y el overlay. Spotify,
   Discord y cualquier otra ventana se ocultan en cuanto aparecen, sin quitarle el foco al juego. Ver
   [Modo consola inmersivo](#modo-consola-inmersivo).
@@ -59,7 +59,7 @@ Sí. Se hace en dos pasos:
    pantalla principal, así que normalmente ya aparece ahí.
 2. Si Steam la abre en otra pantalla (a veces recuerda la última posición), Console Mode busca la ventana de
    Big Picture durante 60 segundos y la **mueve y la ajusta** al tamaño de la pantalla de la consola. Esto es la
-   opción «Forzar Big Picture en la pantalla del modo consola».
+   opción «Forzarlo en la pantalla del modo consola» (*Modos → Opciones del modo consola → Frontal*).
 
 ## Instalación
 
@@ -129,7 +129,9 @@ pública.
 ### Overlay con el mando
 
 Con un mando **Xbox o compatible XInput** (incluidos los 8BitDo en modo X), mantén **View + Menú** (los dos botones
-pequeños del centro) durante **medio segundo**. Aparece un panel en la esquina inferior derecha con:
+pequeños del centro) durante **medio segundo**. Aparece un panel en la esquina inferior derecha. Arriba muestra el modo
+actual, la **hora** y la **batería** del mando con el que lo has abierto (en rojo si está baja; con un mando con cable,
+o si el mando no informa de su batería, no aparece). Debajo tiene:
 
 - **Volver a modo PC** (en modo consola): cierra el frontal (Big Picture, Playnite...) y vuelve a tu pantalla y tu audio del modo PC, sin
   soltar el mando.
@@ -148,6 +150,11 @@ pequeños del centro) durante **medio segundo**. Aparece un panel en la esquina 
   ahora. Al pulsar **A**, el panel pasa al centro de la pantalla con la lista de opciones. Elige con **A** o vuelve
   con **B**. Si el frontal está abierto y cambias de pantalla, se mueve a la elegida.
 - **Volumen** del sonido y del micrófono: ajústalo con **← →** (de 5 en 5 %). **A** silencia o activa.
+- **Modo inmersivo** (en modo consola): **A** lo activa o lo desactiva, igual que la casilla de la ventana del PC (y
+  se guarda). Ver [Modo consola inmersivo](#modo-consola-inmersivo).
+- **Suspender**, **Reiniciar** y **Apagar**: tres botones al final del panel (elige con ← →). Cada uno pide
+  confirmación en un diálogo en el centro de la pantalla que empieza en «No». Desde suspensión puedes despertar el PC
+  con el mando o desde el móvil si lo has preparado (ver [Encender el PC a distancia](#encender-el-pc-a-distancia)).
 
 Usa la **cruceta o el stick** para moverte, **A** para elegir y **B** (o View + Menú otra vez) para cerrar. El panel
 también se cierra solo tras 20 segundos sin usarlo.
@@ -162,13 +169,15 @@ Notas:
   ejemplo, puede abrir su menú de pausa).
 - Un juego en **pantalla completa exclusiva** dibuja directamente en la pantalla y no deja ver nada encima. En ese
   caso Console Mode lo minimiza (como Alt+Tab), enseña el overlay y, al cerrarlo, lo restaura. Se puede desactivar en
-  *Modos → Modo Consola*. Antes de eso, prueba a dejar activadas las **optimizaciones de pantalla completa** de
+  *Modos → Opciones del modo consola → Overlay del mando*. Antes de eso, prueba a dejar activadas las **optimizaciones de pantalla completa** de
   Windows (propiedades del `.exe` → Compatibilidad): con ellas muchos juegos «exclusivos» admiten ventanas encima.
-- Se puede desactivar en *Modos → Modo Consola*. También se abre desde el menú del icono de la bandeja.
+- Se puede desactivar en *Modos → Opciones del modo consola → Overlay del mando*. También se abre desde el menú del
+  icono de la bandeja.
 
 ### Modo consola inmersivo
 
-En *Modos → Modo Consola*, marca **Modo consola inmersivo**. Mientras estés en modo consola:
+En *Modos → Opciones del modo consola → Modo inmersivo*, marca **Activar el modo consola inmersivo**, o actívalo desde
+el overlay del mando. Mientras estés en modo consola:
 
 - Se ven el **frontal** (Big Picture, Playnite...), las **tiendas de juegos** (Steam, Epic, EA app, Ubisoft Connect,
   Battle.net, GOG Galaxy, Xbox), **los juegos y todo lo que abran** (lanzadores, avisos del antitrampas...) y el
@@ -229,7 +238,7 @@ Para que funcione:
 4. **Móvil**: conéctate al PC una vez con la app nueva para que guarde los datos de su tarjeta de red.
 
 Console Mode guarda cómo estaba cada ajuste en `%ProgramData%\ConsoleMode\wake-setup.json`. Con **Deshacer todo**, o al
-desinstalar la app, todo vuelve a quedar como antes. La pestaña también tiene una guía, incluido cómo hacer que Windows
+desinstalar la app, todo vuelve a quedar como antes. La pestaña también tiene una guía (botón **Ver guía**), incluido cómo hacer que Windows
 inicie sesión solo con sus propias herramientas (Console Mode no guarda tu contraseña).
 
 ### Actualizaciones
@@ -251,7 +260,7 @@ Cada app busca su propio archivo en las últimas releases (`ConsoleMode-Setup-X.
 
 En la pestaña *Ajustes*:
 
-- **Mostrar icono en la bandeja del sistema**: si lo desactivas, la app sigue funcionando pero sin icono. Para volver
+- **Icono en la bandeja del sistema**: si lo desactivas, la app sigue funcionando pero sin icono. Para volver
   a ver la ventana, ejecuta otra vez `ConsoleMode.exe`. No se abre una segunda copia: se muestra la ventana de la
   que ya está en marcha.
 - **Iniciar con Windows**: crea la tarea programada «Console Mode (tu usuario)», que abre la app en segundo plano
