@@ -251,6 +251,16 @@ public sealed class TrayApplicationContext : ApplicationContext
         Log.Info($"Overlay combination: {combo}");
     }
 
+    /// <summary>Saves which console's button icons the overlay and the window show.</summary>
+    public void SetButtonIconFamily(ButtonIconFamily family)
+    {
+        lock (Settings)
+        {
+            Settings.ButtonIcons = family;
+            Settings.Save();
+        }
+    }
+
     /// <summary>
     /// Starts reading the controllers to capture a new overlay combination. The overlay does not open until the
     /// returned session is disposed.
@@ -328,7 +338,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     private void ShowOverlay(IntPtr minimizedGame, int? controllerIndex)
     {
         _overlay = new OverlayForm(AppIcon, Switcher, () => _gamepad?.AnyInputHeld ?? false, minimizedGame, controllerIndex,
-            () => Settings.ImmersiveConsole, SetImmersiveConsole);
+            () => Settings.ImmersiveConsole, SetImmersiveConsole, Settings.ButtonIcons);
         _overlay.FormClosed += (_, _) =>
         {
             _overlay = null;

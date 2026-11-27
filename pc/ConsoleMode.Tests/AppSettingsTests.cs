@@ -45,6 +45,16 @@ public class AppSettingsTests
         Assert.Equal(new[] { "Spotify" }, settings.ImmersiveAllowedPrograms);
         Assert.Equal("Pixel", Assert.Single(settings.TrustedDevices).Name);
         Assert.Equal(GamepadButtons.View | GamepadButtons.Menu, settings.OverlayComboButtons);
+        Assert.Equal(ButtonIconFamily.Xbox, settings.ButtonIcons);
+    }
+
+    [Fact]
+    public void ButtonIconsAreSavedAsText()
+    {
+        var json = new AppSettings { ButtonIcons = ButtonIconFamily.PlayStation }.ToJson();
+
+        Assert.Contains("\"ButtonIcons\": \"PlayStation\"", json);
+        Assert.Equal(ButtonIconFamily.PlayStation, AppSettings.FromJson(json)!.ButtonIcons);
     }
 
     [Fact]

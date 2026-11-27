@@ -113,6 +113,9 @@ public sealed class AppSettings
     /// </summary>
     public List<string> OverlayCombo { get; set; } = OverlayCombos.ToNames(OverlayCombos.Default);
 
+    /// <summary>Console whose button icons the overlay and the window show (input is still XInput).</summary>
+    public ButtonIconFamily ButtonIcons { get; set; } = ButtonIconFamily.Xbox;
+
     [JsonIgnore]
     public GamepadButtons OverlayComboButtons
     {
