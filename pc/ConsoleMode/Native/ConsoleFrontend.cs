@@ -78,12 +78,8 @@ public static class ConsoleFrontend
             return;
         }
 
-        Log.Info($"Abriendo {Name} ({exe})");
-        Process.Start(new ProcessStartInfo(exe, Kind == FrontendKind.Custom ? _settings?.CustomFrontendArgs ?? "" : "")
-        {
-            UseShellExecute = true,
-            WorkingDirectory = Path.GetDirectoryName(exe) ?? "",
-        });
+        ShellLauncher.Open(Name, exe, Kind == FrontendKind.Custom ? _settings?.CustomFrontendArgs ?? "" : "",
+            Path.GetDirectoryName(exe) ?? "");
     }
 
     public static async Task CloseAsync()
