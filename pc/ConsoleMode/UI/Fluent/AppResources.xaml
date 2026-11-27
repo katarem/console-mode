@@ -1,10 +1,7 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
-    <ResourceDictionary.MergedDictionaries>
-        <ui:ThemesDictionary Theme="Light" />
-        <ui:ControlsDictionary />
-    </ResourceDictionary.MergedDictionaries>
+    <!-- Console Mode's own styles. WPF-UI's theme and control dictionaries are added by MainWindowHost. -->
 
     <!-- Page layout -->
     <Style x:Key="PageContent" TargetType="StackPanel">
