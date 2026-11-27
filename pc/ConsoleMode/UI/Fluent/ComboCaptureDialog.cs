@@ -13,11 +13,22 @@ namespace ConsoleMode.UI.Fluent;
 /// «Cambiar» on the overlay combination: the user holds the buttons they want on the gamepad and saves them. The
 /// overlay cannot open while the dialog is shown.
 /// </summary>
-internal static class ComboCaptureDialog
+internal sealed class ComboCaptureDialog
 {
-    public static async Task ShowAsync(TrayApplicationContext app, MainWindow window)
+    private readonly TrayApplicationContext _app;
+    private readonly MainWindow _window;
+
+    private ComboCaptureDialog(TrayApplicationContext app, MainWindow window)
     {
-        var family = app.Settings.ButtonIcons;
+        _app = app;
+        _window = window;
+    }
+
+    public static Task ShowAsync(TrayApplicationContext app, MainWindow window) => new ComboCaptureDialog(app, window).RunAsync();
+
+    private async Task RunAsync()
+    {
+        var family = _app.Settings.ButtonIcons;
         var glyphs = new ComboGlyphs { Family = family, Buttons = GamepadButtons.None, HorizontalAlignment = HorizontalAlignment.Center };
         var progress = new System.Windows.Controls.ProgressBar { Minimum = 0, Maximum = 1, Height = 4, Margin = new Thickness(0, 16, 0, 0) };
         var status = new TextBlock { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 0), TextWrapping = TextWrapping.Wrap };
@@ -28,7 +39,7 @@ internal static class ComboCaptureDialog
         content.Children.Add(progress);
         content.Children.Add(status);
 
-        var dialog = new ContentDialog(window.Dialogs)
+        var dialog = new ContentDialog(_window.Dialogs)
         {
             Title = "Combinación para abrir el overlay",
             Content = content,
@@ -38,7 +49,7 @@ internal static class ComboCaptureDialog
         };
 
         var navigationLabels = string.Join(", ", new[] { GamepadButtons.A, GamepadButtons.B }.Select(b => ButtonGlyphs.For(family, b).Text));
-        using var session = app.BeginComboCapture();
+        using var session = _app.BeginComboCapture();
         var capture = new ComboCapture();
         var clock = Stopwatch.StartNew();
         GamepadButtons? captured = null;
@@ -66,15 +77,15 @@ internal static class ComboCaptureDialog
             var result = await dialog.ShowAsync();
             if (result == ContentDialogResult.Primary && captured is { } combo)
             {
-                app.SetOverlayCombo(combo);
-                window.OverlaySettingsChanged();
-                window.ShowStatus("Combinación del overlay guardada.");
+                _app.SetOverlayCombo(combo);
+                _window.OverlaySettingsChanged();
+                _window.ShowStatus("Combinación del overlay guardada.");
             }
         }
         catch (Exception ex)
         {
             Log.Error("Could not save the overlay combination", ex);
-            window.ShowStatus($"No se pudo guardar la combinación: {ex.Message}", error: true);
+            _window.ShowStatus($"No se pudo guardar la combinación: {ex.Message}", error: true);
         }
         finally
         {

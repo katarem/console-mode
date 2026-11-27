@@ -19,7 +19,8 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly RegisteredWaitHandle _showWait;
     private readonly EventWaitHandle _exitEvent;
     private readonly RegisteredWaitHandle _exitWait;
-    private MainForm? _form;
+    // Created the first time the window is opened, so starting in the background does not load WPF.
+    private IMainWindow? _window;
     private GamepadWatcher? _gamepad;
     private readonly System.Windows.Forms.Timer _updateTimer;
     private Version? _notifiedUpdate;
@@ -48,7 +49,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         Switcher.StateChanged += state => RunOnUi(() => OnStateChanged(state));
 
         Server = new RemoteServer(Settings, Switcher, ConfirmPairingAsync);
-        Server.DevicesChanged += () => RunOnUi(() => _form?.RefreshDevices());
+        Server.DevicesChanged += () => RunOnUi(() => _window?.RefreshDevices());
         Server.RemoteModeRequested += (device, mode) =>
             RunOnUi(() => Notify($"{device} ha pedido el modo {mode.ToDisplayName()}"));
         Server.RemotePowerRequested += (device, action) =>
@@ -85,7 +86,7 @@ public sealed class TrayApplicationContext : ApplicationContext
                 Log.Info("Ha cambiado la lista de pantallas o de audio");
                 QuickSwitch.NotifyDevicesChanged();
                 // The overlay gets the new devices through QuickSwitch.SnapshotChanged.
-                RunOnUi(() => _form?.RefreshDeviceLists());
+                RunOnUi(() => _window?.RefreshDeviceLists());
             };
         }
         catch (Exception ex)
@@ -172,20 +173,8 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     public void ShowMainWindow()
     {
-        if (_form == null || _form.IsDisposed)
-        {
-            _form = new MainForm(this);
-        }
-        if (!_form.Visible)
-        {
-            _form.Show();
-        }
-        if (_form.WindowState == FormWindowState.Minimized)
-        {
-            _form.WindowState = FormWindowState.Normal;
-        }
-        _form.Activate();
-        _form.BringToFront();
+        _window ??= Fluent.MainWindowHost.Create(this);
+        _window.ShowAndActivate();
     }
 
     public void SetTrayIconVisible(bool visible)
@@ -276,10 +265,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             Settings.Save();
         }
         UpdateImmersiveGuard(Switcher.State);
-        if (_form != null && !_form.IsDisposed)
-        {
-            _form.ShowImmersiveState(enabled);
-        }
+        _window?.ShowImmersiveState(enabled);
     }
 
     /// <summary>
@@ -420,8 +406,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         GameProcesses.SetTracking(false);
         _updateTimer.Dispose();
         _overlay?.Close();
-        _form?.Close();
-        _form?.Dispose();
+        _window?.CloseForExit();
         ExitThread();
     }
 
@@ -429,7 +414,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         UpdateTray(state);
         UpdateImmersiveGuard(state);
-        _form?.UpdateModeState(state);
+        _window?.UpdateModeState(state);
         if (state.Error != null)
         {
             Notify($"Cambio a modo {state.Mode.ToDisplayName()} con avisos: {state.Error}", ToolTipIcon.Warning);
