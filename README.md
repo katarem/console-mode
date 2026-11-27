@@ -166,7 +166,7 @@ Lo que elijas aquí es **temporal**: no cambia la configuración de tus modos. L
 aplicará lo que tengas configurado en *Modos*.
 
 En *Modo consola → Overlay del mando → Iconos de los botones* eliges cómo se dibujan los botones, en el overlay y en la
-ventana: **Xbox** (por defecto), **PlayStation** o **Nintendo**. Se emparejan por su posición en el mando: el botón de
+ventana, con los iconos de cada mando: **Xbox** (por defecto), **PlayStation** o **Nintendo**. Se emparejan por su posición en el mando: el botón de
 abajo es A en Xbox, ✕ en PlayStation y B en Nintendo. Solo cambia el dibujo: el mando se sigue leyendo por XInput (un
 mando de PlayStation o Nintendo necesita Steam Input o DS4Windows).
 
@@ -387,3 +387,7 @@ docs/         Protocolo
 ## Licencia
 
 [MIT](LICENSE)
+
+Los iconos de los botones del mando son del pack [«Input Prompts» de Kenney](https://kenney.nl/assets/input-prompts)
+(sets Xbox Series, PlayStation Series y Nintendo Switch), con licencia
+[CC0](https://creativecommons.org/publicdomain/zero/1.0/). Ver `pc/ConsoleMode/Assets/ButtonIcons/LICENSE.txt`.

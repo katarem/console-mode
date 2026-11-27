@@ -1779,14 +1779,24 @@ public sealed class OverlayForm : Form
             if (button is { } pressed)
             {
                 // Drawn with the chosen console's icons: A is «A», «✕» or «B» depending on the family.
-                var glyph = ButtonGlyphs.For(_buttonIcons, pressed);
                 var c = new Rectangle(x, _hintRect.Top + (_hintRect.Height - circle) / 2, circle, circle);
-                using (var brush = new SolidBrush(Color.FromArgb(glyph.Fill.R, glyph.Fill.G, glyph.Fill.B)))
+                if (ButtonIconImages.ForDarkBackground(_buttonIcons, pressed) is { } icon)
                 {
-                    g.FillEllipse(brush, c);
+                    var previous = g.InterpolationMode;
+                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    g.DrawImage(icon, Rectangle.Inflate(c, Px(2), Px(2)));
+                    g.InterpolationMode = previous;
                 }
-                TextRenderer.DrawText(g, glyph.Text, glyph.UsesSymbolFont ? f.ButtonSymbol : f.Button, c,
-                    Color.FromArgb(glyph.Foreground.R, glyph.Foreground.G, glyph.Foreground.B), CenterFlags);
+                else
+                {
+                    var glyph = ButtonGlyphs.For(_buttonIcons, pressed);
+                    using (var brush = new SolidBrush(Color.FromArgb(glyph.Fill.R, glyph.Fill.G, glyph.Fill.B)))
+                    {
+                        g.FillEllipse(brush, c);
+                    }
+                    TextRenderer.DrawText(g, glyph.Text, glyph.UsesSymbolFont ? f.ButtonSymbol : f.Button, c,
+                        Color.FromArgb(glyph.Foreground.R, glyph.Foreground.G, glyph.Foreground.B), CenterFlags);
+                }
                 x = c.Right + Px(8);
             }
             var width = TextRenderer.MeasureText(text, f.Small, Size.Empty, TextFlags).Width;
