@@ -67,9 +67,13 @@ public static class ButtonGlyphs
         GamepadButtons.A, GamepadButtons.B, GamepadButtons.X, GamepadButtons.Y,
     };
 
+    /// <summary>The buttons of <paramref name="combo"/> in the order they are shown.</summary>
+    public static IReadOnlyList<GamepadButtons> InDisplayOrder(GamepadButtons combo) =>
+        DisplayOrder.Where(button => (combo & button) != 0).ToList();
+
     /// <summary>One glyph per button of <paramref name="combo"/>, in display order.</summary>
     public static IReadOnlyList<ButtonGlyph> ForCombo(ButtonIconFamily family, GamepadButtons combo) =>
-        DisplayOrder.Where(button => (combo & button) != 0).Select(button => For(family, button)).ToList();
+        InDisplayOrder(combo).Select(button => For(family, button)).ToList();
 
     private static ButtonGlyph Face(ButtonIconFamily family, string xbox, Rgb xboxFill, string playStation, Rgb playStationColor,
         string nintendo) => family switch

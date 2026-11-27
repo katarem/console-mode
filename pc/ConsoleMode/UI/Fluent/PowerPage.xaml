@@ -1,0 +1,69 @@
+<Page x:Class="ConsoleMode.UI.Fluent.PowerPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+      xmlns:local="clr-namespace:ConsoleMode.UI.Fluent"
+      Title="Encendido">
+    <Page.Resources>
+        <Style x:Key="GuideHeading" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,12,0,4" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="WakeOption" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+    </Page.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Style="{StaticResource PageContent}">
+            <TextBlock Style="{StaticResource PageTitle}" Text="Encendido" />
+
+            <Border Style="{StaticResource CardRow}" Padding="18">
+                <StackPanel>
+                    <DockPanel Margin="0,0,0,14">
+                        <local:IconChip DockPanel.Dock="Left" Glyph="&#xE7E8;" ChipColor="#DC2626" />
+                        <TextBlock Style="{StaticResource RowTitle}" Text="Preparar Windows" FontWeight="SemiBold" Margin="16,0" />
+                    </DockPanel>
+                    <CheckBox x:Name="WakeNetwork" Style="{StaticResource WakeOption}" Content="Activar Wake-on-LAN en la tarjeta de red"
+                              ToolTip="Solo con el «paquete mágico» que envía el móvil: el PC no se enciende con cualquier tráfico de la red." />
+                    <CheckBox x:Name="WakeGamepad" Style="{StaticResource WakeOption}" Content="Despertar el PC con el mando"
+                              ToolTip="Permite que el adaptador Xbox o el Bluetooth despierten el PC de la suspensión. Desde apagado no es posible." />
+                    <CheckBox x:Name="WakeFastStartup" Style="{StaticResource WakeOption}" Content="Desactivar el inicio rápido de Windows"
+                              ToolTip="En muchos PCs hace falta para poder encenderlo desde apagado." />
+                    <CheckBox x:Name="WakeNoSignIn" Style="{StaticResource WakeOption}" Content="No pedir el PIN al volver de la suspensión"
+                              ToolTip="Al volver de la suspensión no se pide el PIN. Al encender o reiniciar se sigue pidiendo." />
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <ui:Button x:Name="ApplyButton" Content="Aplicar" Appearance="Primary" Click="OnApplyClick"
+                                   ToolTip="Windows pedirá permiso de administrador. Console Mode guarda cómo estaba cada ajuste: con «Deshacer todo», o al desinstalar la app, todo vuelve a quedar como antes. Al aplicar, la red puede cortarse un momento." />
+                        <ui:Button x:Name="RevertButton" Content="Deshacer todo" Margin="8,0,0,0" Click="OnRevertClick" />
+                    </StackPanel>
+                    <TextBlock x:Name="WakeStatus" Style="{StaticResource Secondary}" Margin="0,12,0,0" />
+                </StackPanel>
+            </Border>
+
+            <ui:CardExpander Header="Guía" IsExpanded="False" Margin="0,4,0,0">
+                <ui:CardExpander.Icon>
+                    <ui:SymbolIcon Symbol="BookOpen24" />
+                </ui:CardExpander.Icon>
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Secondary}" Text="Enciende o despierta este PC desde el móvil, o con el mando si tu hardware lo permite. Console Mode prepara Windows; tú solo tienes que activar Wake-on-LAN en la BIOS." />
+                    <TextBlock Style="{StaticResource GuideHeading}" Text="1. Activa Wake-on-LAN en la BIOS" />
+                    <TextBlock Style="{StaticResource Secondary}" Text="Reinicia el PC y entra en la BIOS/UEFI (normalmente con Supr o F2 al arrancar). Según el fabricante, la opción se llama «Wake on LAN», «Power On By PCI-E», «Resume by PCI-E Device» o «Remote Wake Up» y suele estar en Energía o APM. Si existe «ErP» o «Deep Sleep», desactívalo: deja la tarjeta de red sin corriente con el PC apagado." />
+                    <TextBlock Style="{StaticResource GuideHeading}" Text="2. Conecta el PC por cable" />
+                    <TextBlock Style="{StaticResource Secondary}" Text="Wake-on-LAN funciona de forma fiable por Ethernet. Por Wi-Fi casi nunca enciende el PC apagado, y desde suspensión solo en algunos equipos." />
+                    <TextBlock Style="{StaticResource GuideHeading}" Text="3. Pulsa «Aplicar» y abre la app del móvil" />
+                    <TextBlock Style="{StaticResource Secondary}" Text="Conecta el móvil a este PC al menos una vez con la versión nueva de la app: así guarda los datos para encenderlo. Después, con el PC apagado o en suspensión, aparece el botón «Encender el PC»." />
+                    <TextBlock Style="{StaticResource GuideHeading}" Text="Con el mando" />
+                    <TextBlock Style="{StaticResource Secondary}" Text="El mando solo puede despertar el PC de la suspensión, y depende del adaptador y de la placa base: pruébalo pulsando el botón Xbox con el PC suspendido. Desde apagado no es posible." />
+                    <TextBlock Style="{StaticResource GuideHeading}" Text="Entrar sin escribir la contraseña" />
+                    <TextBlock Style="{StaticResource Secondary}" Text="Si quieres que Windows inicie sesión solo al encender, configúralo con las herramientas de Windows: Console Mode no guarda tu contraseña. En «Cuentas de usuario» (netplwiz), desmarca «Los usuarios deben escribir su nombre y contraseña». Si no aparece esa casilla, en Configuración → Cuentas → Opciones de inicio de sesión desactiva «Para mayor seguridad, permitir solo el inicio de sesión de Windows Hello». Para deshacerlo, vuelve a marcar la casilla." />
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <ui:Button Content="Abrir «Cuentas de usuario»" Click="OnNetplwizClick" />
+                        <ui:Button Content="Abrir opciones de inicio de sesión" Margin="8,0,0,0" Click="OnSignInOptionsClick" />
+                    </StackPanel>
+                </StackPanel>
+            </ui:CardExpander>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

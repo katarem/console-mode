@@ -19,6 +19,7 @@
     <Compile Include="..\ConsoleMode\Core\ButtonGlyphs.cs" Link="App\ButtonGlyphs.cs" />
     <Compile Include="..\ConsoleMode\Core\ComboCapture.cs" Link="App\ComboCapture.cs" />
     <Compile Include="..\ConsoleMode\Core\ControllerBattery.cs" Link="App\ControllerBattery.cs" />
+    <Compile Include="..\ConsoleMode\Core\DeviceOptions.cs" Link="App\DeviceOptions.cs" />
     <Compile Include="..\ConsoleMode\Core\GamepadButtons.cs" Link="App\GamepadButtons.cs" />
     <Compile Include="..\ConsoleMode\Core\GamepadNavigator.cs" Link="App\GamepadNavigator.cs" />
     <Compile Include="..\ConsoleMode\Core\Log.cs" Link="App\Log.cs" />
