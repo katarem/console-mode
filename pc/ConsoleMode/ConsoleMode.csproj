@@ -4,6 +4,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- DPI awareness lives here, not in app.manifest: ApplicationConfiguration.Initialize() applies it. -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
@@ -11,7 +13,7 @@
     <RootNamespace>ConsoleMode</RootNamespace>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.8.2</Version>
+    <Version>1.9.0</Version>
     <Product>Console Mode</Product>
     <Description>Cambia el PC entre modo PC y modo consola (Steam Big Picture)</Description>
     <InvariantGlobalization>false</InvariantGlobalization>

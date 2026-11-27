@@ -4,7 +4,10 @@ using ConsoleMode.Core;
 
 namespace ConsoleMode.Native;
 
-/// <summary>Suspender o apagar el PC (lo pide el móvil). Desde suspensión el Wake-on-LAN es más fiable que desde apagado.</summary>
+/// <summary>
+/// Suspender, reiniciar o apagar el PC (lo piden el móvil y el overlay del mando). Desde suspensión el Wake-on-LAN es más
+/// fiable que desde apagado.
+/// </summary>
 public static class PowerControl
 {
     public static void Sleep()
@@ -22,6 +25,12 @@ public static class PowerControl
         Log.Info("Apagando el PC");
         // Apagado completo (/s sin /hybrid): con el inicio rápido, el apagado híbrido puede impedir el Wake-on-LAN.
         Process.Start(new ProcessStartInfo("shutdown.exe", "/s /t 0") { UseShellExecute = false, CreateNoWindow = true });
+    }
+
+    public static void Restart()
+    {
+        Log.Info("Restarting the PC");
+        Process.Start(new ProcessStartInfo("shutdown.exe", "/r /t 0") { UseShellExecute = false, CreateNoWindow = true });
     }
 
     // BOOLEAN de Win32: un byte.

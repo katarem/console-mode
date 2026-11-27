@@ -21,8 +21,8 @@ public sealed class GamepadWatcher : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private Thread? _thread;
 
-    /// <summary>Se dispara desde el hilo del mando.</summary>
-    public event Action<PadAction>? Action;
+    /// <summary>Raised on the gamepad thread with the action and the XInput index (0–3) of the controller that made it.</summary>
+    public event Action<PadAction, int>? Action;
 
     /// <summary>Lo actualiza la UI: con el overlay abierto se navega y se lee más a menudo.</summary>
     public volatile bool OverlayOpen;
@@ -71,7 +71,7 @@ public sealed class GamepadWatcher : IDisposable
 
                     foreach (var action in _navigators[i].Update(pad.wButtons, pad.sThumbLX, pad.sThumbLY, now, OverlayOpen))
                     {
-                        Action?.Invoke(action);
+                        Action?.Invoke(action, i);
                     }
                 }
                 _anyInputHeld = held;
@@ -88,6 +88,31 @@ public sealed class GamepadWatcher : IDisposable
             Log.Error("Error leyendo el mando", ex);
         }
     }
+
+    /// <summary>
+    /// Battery of the controller at <paramref name="controllerIndex"/>; null when it is unknown, the controller is not
+    /// connected or this XInput version cannot tell. Blocking: call it off the UI thread.
+    /// </summary>
+    public static ControllerBattery? ReadBattery(int controllerIndex)
+    {
+        try
+        {
+            return XInputGetBatteryInformation(controllerIndex, BatteryDevTypeGamepad, out var info) == 0
+                ? ControllerBattery.FromXInput(info.BatteryType, info.BatteryLevel)
+                : null;
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+        {
+            if (!_batteryUnavailableLogged)
+            {
+                _batteryUnavailableLogged = true;
+                Log.Error("XInput cannot read the controller battery", ex);
+            }
+            return null;
+        }
+    }
+
+    private static volatile bool _batteryUnavailableLogged;
 
     public void Dispose()
     {
@@ -114,6 +139,18 @@ public sealed class GamepadWatcher : IDisposable
         public XINPUT_GAMEPAD Gamepad;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct XINPUT_BATTERY_INFORMATION
+    {
+        public byte BatteryType;
+        public byte BatteryLevel;
+    }
+
+    private const byte BatteryDevTypeGamepad = 0;
+
     [DllImport("xinput1_4.dll")]
     private static extern int XInputGetState(int userIndex, out XINPUT_STATE state);
+
+    [DllImport("xinput1_4.dll")]
+    private static extern int XInputGetBatteryInformation(int userIndex, byte devType, out XINPUT_BATTERY_INFORMATION information);
 }
