@@ -63,7 +63,7 @@ public sealed class MainForm : Form
     };
     private readonly CheckBox _gamepadOverlay = new()
     {
-        Text = "Overlay con el mando: mantén View + Menú 1 s para cambiar audio y pantalla",
+        Text = "Overlay con el mando: mantén View + Menú medio segundo para cambiar audio y pantalla",
         AutoSize = true,
     };
 

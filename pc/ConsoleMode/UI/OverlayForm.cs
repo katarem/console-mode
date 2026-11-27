@@ -138,6 +138,14 @@ public sealed class OverlayForm : Form
     private VolumeInfo? _outVolume;
     private VolumeInfo? _inVolume;
 
+    // Device cache the lists above come from (null while QuickSwitch has not read the devices yet).
+    private QuickSnapshot? _appliedSnapshot;
+
+    // Opening time checkpoints (ms of _openClock), logged once the overlay is shown.
+    private long _windowsDoneAt;
+    private long _dataDoneAt;
+    private long _layoutDoneAt;
+
     // Vista principal: fila elegida y, en la fila de silenciar, cuál de los dos botones (0 = sonido, 1 = micrófono).
     private int _selected;
     private int _toggleIndex;
@@ -180,6 +188,7 @@ public sealed class OverlayForm : Form
         _game = GameWindow.FromWindow(_returnTarget != IntPtr.Zero ? _returnTarget : _previousForeground);
         _switcher = switcher;
         _inputHeld = inputHeld;
+        _windowsDoneAt = _openClock.ElapsedMilliseconds;
 
         Text = "Console Mode";
         Icon = icon;
@@ -198,11 +207,15 @@ public sealed class OverlayForm : Form
         _focusTimer.Tick += (_, _) => EnsureFocus();
         _volumeTimer.Tick += (_, _) => RefreshVolumes();
 
+        // Devices come from QuickSwitch's cache: asking Windows for them here took hundreds of milliseconds.
+        CopySnapshot(QuickSwitch.Snapshot);
+        _dataDoneAt = _openClock.ElapsedMilliseconds;
+
         // Se calcula con el escalado de la pantalla de destino y se coloca ya en su esquina antes de mostrarse.
         _dpi = DpiOf(TargetArea());
-        LoadData();
         Relayout();
         Place();
+        _layoutDoneAt = _openClock.ElapsedMilliseconds;
     }
 
     /// <summary>
@@ -326,11 +339,20 @@ public sealed class OverlayForm : Form
             _dpi = DeviceDpi;
             Relayout();
         }
+        var showStartedAt = _openClock.ElapsedMilliseconds;
         Place();
         GrabFocus();
         Log.Info($"Overlay: abierto en {_openClock.ElapsedMilliseconds} ms");
+        var openedAt = _openClock.ElapsedMilliseconds;
+        Log.Info($"Overlay timing: windows {_windowsDoneAt} ms, data {_dataDoneAt - _windowsDoneAt} ms, " +
+                 $"layout {_layoutDoneAt - _dataDoneAt} ms, show {showStartedAt - _layoutDoneAt} ms, " +
+                 $"place+focus {openedAt - showStartedAt} ms, cache {(_appliedSnapshot != null ? "ready" : "loading")}");
         _idleTimer.Start();
         _volumeTimer.Start();
+
+        // A read that finished since the constructor, and a fresh one (volumes, retry of a list that failed).
+        ApplyLatestSnapshot();
+        QuickSwitch.RequestRefresh();
     }
 
     protected override void WndProc(ref Message m)
@@ -490,15 +512,30 @@ public sealed class OverlayForm : Form
     // Datos
     // ------------------------------------------------------------------
 
-    private void LoadData()
+    /// <summary>Takes the lists from the cache (null: not read yet, the rows say «Cargando…») and rebuilds the rows.</summary>
+    private void CopySnapshot(QuickSnapshot? snapshot)
     {
-        _audio = QuickSwitch.AudioOptions();
-        _mics = QuickSwitch.MicrophoneOptions();
-        _comms = QuickSwitch.CommunicationsOptions();
-        _displays = QuickSwitch.DisplayOptions();
-        _outVolume = _audio.Count > 0 ? QuickSwitch.Volume(AudioFlow.Output) : null;
-        _inVolume = _mics.Count > 0 ? QuickSwitch.Volume(AudioFlow.Input) : null;
+        var data = snapshot ?? QuickSnapshot.Empty;
+        _audio = data.Audio;
+        _mics = data.Microphones;
+        _comms = data.Communications;
+        _displays = data.DisplayOptions;
+        _outVolume = data.OutputVolume;
+        _inVolume = data.InputVolume;
+        _appliedSnapshot = snapshot;
         BuildRows();
+    }
+
+    /// <summary>Copies the cache if it is newer than what the rows show. Returns whether it did.</summary>
+    private bool CopyLatestSnapshot()
+    {
+        var latest = QuickSwitch.Snapshot;
+        if (latest == null || ReferenceEquals(latest, _appliedSnapshot))
+        {
+            return false;
+        }
+        CopySnapshot(latest);
+        return true;
     }
 
     private void BuildRows()
@@ -506,8 +543,9 @@ public sealed class OverlayForm : Form
         var selectedKey = _selected < _rows.Count ? _rows[_selected].Key : null;
         _rows.Clear();
 
-        static string Current(IReadOnlyList<QuickOption> options) =>
-            options.FirstOrDefault(o => o.IsCurrent)?.Name ?? (options.Count == 0 ? "No hay ninguno" : "Sin elegir");
+        string Current(IReadOnlyList<QuickOption> options) => _appliedSnapshot == null
+            ? "Cargando…"
+            : options.FirstOrDefault(o => o.IsCurrent)?.Name ?? (options.Count == 0 ? "No hay ninguno" : "Sin elegir");
 
         var state = _switcher.State;
         if (!state.Busy)
@@ -570,16 +608,33 @@ public sealed class OverlayForm : Form
     }
 
     /// <summary>
-    /// Se ha conectado o quitado una pantalla o un dispositivo de audio. Con una lista abierta, o mientras se aplica un
-    /// cambio, se espera: se verá al volver a la vista principal.
+    /// QuickSwitch has read the devices again (one was connected or removed, or the first read has finished). With a list
+    /// or the dialog open, or while a change is applied, it waits: it is applied when going back to the main view.
     /// </summary>
-    public void RefreshDevices()
+    public void ApplyLatestSnapshot()
     {
         if (IsDisposed || _picker != null || _confirmClose || _busy || _closing)
         {
             return;
         }
-        LoadData();
+        var latest = QuickSwitch.Snapshot;
+        if (latest == null || ReferenceEquals(latest, _appliedSnapshot))
+        {
+            return;
+        }
+        if (_appliedSnapshot != null && latest.HasSameDevices(_appliedSnapshot) &&
+            (latest.OutputVolume == null) == (_outVolume == null) && (latest.InputVolume == null) == (_inVolume == null))
+        {
+            // Only the volumes changed: same rows, same size.
+            _appliedSnapshot = latest;
+            _outVolume = latest.OutputVolume;
+            _inVolume = latest.InputVolume;
+            Invalidate();
+            return;
+        }
+        CopySnapshot(latest);
+        // The target display (and its scale) may only be known now, e.g. when the overlay opened before the first read.
+        _dpi = DpiOf(TargetArea());
         Relayout();
         Place();
     }
@@ -842,6 +897,7 @@ public sealed class OverlayForm : Form
     {
         _confirmClose = false;
         _scroll = 0;
+        CopyLatestSnapshot();
         Relayout();
         Place();
         GrabFocus();
@@ -910,6 +966,7 @@ public sealed class OverlayForm : Form
             _idleTimer.Start();
             BuildRows();
             Invalidate();
+            ApplyLatestSnapshot();
         }
     }
 
@@ -938,6 +995,7 @@ public sealed class OverlayForm : Form
     {
         _picker = null;
         _scroll = 0;
+        CopyLatestSnapshot();
         Relayout();
         Place();
         GrabFocus();
@@ -977,9 +1035,11 @@ public sealed class OverlayForm : Form
                         break;
                 }
             });
+            // The switch has asked for a new read (off the UI thread): the lists show the change on the main view.
+            var fresh = await QuickSwitch.PendingRefreshAsync();
             if (picker == PickerKind.Display)
             {
-                _targetDisplayGdiName = DisplayManager.Find(option.Id)?.GdiName;
+                _targetDisplayGdiName = fresh.FindDisplay(option.Id)?.GdiName;
             }
             _status = picker switch
             {
@@ -1008,7 +1068,6 @@ public sealed class OverlayForm : Form
 
         // Si la pantalla elegida tiene otro escalado, se recalcula con el suyo.
         _dpi = DpiOf(TargetArea());
-        LoadData();
         ClosePicker();
     }
 
@@ -1662,6 +1721,7 @@ public sealed class OverlayForm : Form
             {
                 SetStatus(state.Error, error: true);
                 _idleTimer.Start();
+                ApplyLatestSnapshot();
                 return;
             }
             CloseWhenReleased();
@@ -1679,22 +1739,26 @@ public sealed class OverlayForm : Form
     /// </summary>
     private Rectangle TargetArea()
     {
-        if (_targetDisplayGdiName != null)
+        // Displays come from the cache; their bounds from WinForms' screen list, which is cheap and always current.
+        var displays = QuickSwitch.Snapshot;
+        if (_targetDisplayGdiName != null &&
+            displays?.Displays.FirstOrDefault(d => d.GdiName == _targetDisplayGdiName) is { } target)
         {
-            var target = DisplayManager.GetDisplays().FirstOrDefault(d => d.GdiName == _targetDisplayGdiName);
-            if (target != null)
-            {
-                return target.Bounds;
-            }
+            return CurrentBounds(target);
         }
-        if (_switcher.State.Mode == AppMode.Console && DisplayManager.Find(_switcher.ConsoleDisplayId) is { } console)
+        if (_switcher.State.Mode == AppMode.Console && displays?.FindDisplay(_switcher.ConsoleDisplayId) is { } console)
         {
-            return console.Bounds;
+            return CurrentBounds(console);
         }
         return _previousForeground != IntPtr.Zero
             ? Screen.FromHandle(_previousForeground).Bounds
             : Screen.FromPoint(Cursor.Position).Bounds;
     }
+
+    /// <summary>The display's bounds now, or the cached ones if WinForms does not list it (yet).</summary>
+    private static Rectangle CurrentBounds(DisplayInfo display) =>
+        Screen.AllScreens.FirstOrDefault(s => string.Equals(s.DeviceName, display.GdiName, StringComparison.OrdinalIgnoreCase))
+            ?.Bounds ?? display.Bounds;
 
     /// <summary>Vista principal en la esquina inferior derecha de la pantalla de destino; la lista, en el centro.</summary>
     private void Place()

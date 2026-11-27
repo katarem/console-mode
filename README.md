@@ -36,7 +36,7 @@ Tiene dos partes:
 - **Segundo plano**: al cerrar la ventana la app sigue funcionando. El icono de la bandeja (en «iconos ocultos»)
   es opcional.
 - **Iniciar con Windows** (opcional), directamente en segundo plano.
-- **Overlay con el mando**: mantén **View + Menú** durante 1 segundo en un mando Xbox para cambiar de modo, de audio,
+- **Overlay con el mando**: mantén **View + Menú** durante medio segundo en un mando Xbox para cambiar de modo, de audio,
   de micrófono o de pantalla, subir o bajar el volumen y silenciar el sonido o el micrófono desde el sofá (ver más
   abajo).
 - **Modo consola inmersivo** (opcional): en modo consola solo se ven el frontal, los juegos y el overlay. Spotify,
@@ -129,7 +129,7 @@ pública.
 ### Overlay con el mando
 
 Con un mando **Xbox o compatible XInput** (incluidos los 8BitDo en modo X), mantén **View + Menú** (los dos botones
-pequeños del centro) durante **1 segundo**. Aparece un panel en la esquina inferior derecha con:
+pequeños del centro) durante **medio segundo**. Aparece un panel en la esquina inferior derecha con:
 
 - **Volver a modo PC** (en modo consola): cierra el frontal (Big Picture, Playnite...) y vuelve a tu pantalla y tu audio del modo PC, sin
   soltar el mando.

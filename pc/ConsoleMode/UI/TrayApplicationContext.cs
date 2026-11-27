@@ -34,6 +34,10 @@ public sealed class TrayApplicationContext : ApplicationContext
         _ui = new Control();
         _ = _ui.Handle;
 
+        // Devices for the gamepad overlay are read in the background from the start, so it never waits for Windows.
+        QuickSwitch.RequestRefresh();
+        QuickSwitch.SnapshotChanged += () => RunOnUi(() => _overlay?.ApplyLatestSnapshot());
+
         Settings = AppSettings.Load();
         ConsoleFrontend.Init(Settings);
         GameProcesses.Init(Settings);
@@ -80,11 +84,8 @@ public sealed class TrayApplicationContext : ApplicationContext
             {
                 Log.Info("Ha cambiado la lista de pantallas o de audio");
                 QuickSwitch.NotifyDevicesChanged();
-                RunOnUi(() =>
-                {
-                    _form?.RefreshDeviceLists();
-                    _overlay?.RefreshDevices();
-                });
+                // The overlay gets the new devices through QuickSwitch.SnapshotChanged.
+                RunOnUi(() => _form?.RefreshDeviceLists());
             };
         }
         catch (Exception ex)

@@ -31,7 +31,7 @@ public sealed class GamepadNavigator
     private const ushort Combo = Start | Back;
     private const short StickThreshold = 16000;
 
-    public TimeSpan ComboHold { get; init; } = TimeSpan.FromSeconds(1);
+    public TimeSpan ComboHold { get; init; } = TimeSpan.FromMilliseconds(500);
     public TimeSpan RepeatDelay { get; init; } = TimeSpan.FromMilliseconds(400);
     public TimeSpan RepeatInterval { get; init; } = TimeSpan.FromMilliseconds(120);
 
