@@ -219,7 +219,7 @@ public sealed class TrayApplicationContext : ApplicationContext
 
         if (enabled && _gamepad == null)
         {
-            _gamepad = new GamepadWatcher();
+            _gamepad = new GamepadWatcher { Combo = Settings.OverlayComboButtons };
             _gamepad.Action += (action, controllerIndex) => RunOnUi(() => OnPadAction(action, controllerIndex));
             _gamepad.Start();
         }
@@ -230,6 +230,32 @@ public sealed class TrayApplicationContext : ApplicationContext
             _overlay?.Close();
         }
     }
+
+    /// <summary>Saves the combination that opens the overlay and applies it right away.</summary>
+    public void SetOverlayCombo(GamepadButtons combo)
+    {
+        var validation = OverlayCombos.Validate(combo);
+        if (validation != ComboValidation.Valid)
+        {
+            throw new ArgumentException($"Invalid overlay combination {combo}: {validation}", nameof(combo));
+        }
+        lock (Settings)
+        {
+            Settings.OverlayComboButtons = combo;
+            Settings.Save();
+        }
+        if (_gamepad != null)
+        {
+            _gamepad.Combo = combo;
+        }
+        Log.Info($"Overlay combination: {combo}");
+    }
+
+    /// <summary>
+    /// Starts reading the controllers to capture a new overlay combination. The overlay does not open until the
+    /// returned session is disposed.
+    /// </summary>
+    public GamepadCaptureSession BeginComboCapture() => new(_gamepad);
 
     /// <summary>Activa o desactiva el modo consola inmersivo (solo actúa mientras se está en modo consola).</summary>
     public void SetImmersiveConsole(bool enabled)

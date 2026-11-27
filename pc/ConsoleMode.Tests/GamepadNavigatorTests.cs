@@ -1,24 +1,22 @@
 using ConsoleMode.Core;
+using static ConsoleMode.Core.GamepadButtons;
 
 namespace ConsoleMode.Tests;
 
 public class GamepadNavigatorTests
 {
-    private const ushort View = 0x0020;
-    private const ushort Menu = 0x0010;
-    private const ushort DpadDown = 0x0002;
-    private const ushort ButtonA = 0x1000;
-    private const ushort ButtonB = 0x2000;
-
     private static TimeSpan Ms(int value) => TimeSpan.FromMilliseconds(value);
+
+    private static List<PadAction> Hold(GamepadNavigator navigator, GamepadButtons buttons, int ms, bool overlayOpen = false) =>
+        navigator.Update(buttons, 0, 0, Ms(ms), overlayOpen);
 
     [Fact]
     public void HoldingTheDefaultComboForHalfASecondTogglesTheOverlay()
     {
         var navigator = new GamepadNavigator();
 
-        Assert.Empty(navigator.Update(View | Menu, 0, 0, Ms(0), overlayOpen: false));
-        Assert.Equal(new[] { PadAction.ToggleOverlay }, navigator.Update(View | Menu, 0, 0, Ms(500), overlayOpen: false));
+        Assert.Empty(Hold(navigator, View | Menu, 0));
+        Assert.Equal(new[] { PadAction.ToggleOverlay }, Hold(navigator, View | Menu, 500));
     }
 
     [Fact]
@@ -26,9 +24,9 @@ public class GamepadNavigatorTests
     {
         var navigator = new GamepadNavigator();
 
-        navigator.Update(View | Menu, 0, 0, Ms(0), overlayOpen: false);
-        Assert.Empty(navigator.Update(View | Menu, 0, 0, Ms(490), overlayOpen: false));
-        Assert.Empty(navigator.Update(0, 0, 0, Ms(600), overlayOpen: false));
+        Hold(navigator, View | Menu, 0);
+        Assert.Empty(Hold(navigator, View | Menu, 490));
+        Assert.Empty(Hold(navigator, None, 600));
     }
 
     [Fact]
@@ -36,10 +34,76 @@ public class GamepadNavigatorTests
     {
         var navigator = new GamepadNavigator();
 
-        navigator.Update(View | Menu, 0, 0, Ms(0), overlayOpen: false);
-        navigator.Update(View | Menu, 0, 0, Ms(500), overlayOpen: false);
+        Hold(navigator, View | Menu, 0);
+        Hold(navigator, View | Menu, 500);
 
-        Assert.Empty(navigator.Update(View | Menu, 0, 0, Ms(3000), overlayOpen: true));
+        Assert.Empty(Hold(navigator, View | Menu, 3000, overlayOpen: true));
+    }
+
+    [Fact]
+    public void ACustomComboOpensTheOverlayAndTheDefaultOneNoLonger()
+    {
+        var navigator = new GamepadNavigator { Combo = LeftBumper | RightBumper | Y };
+
+        Hold(navigator, View | Menu, 0);
+        Assert.Empty(Hold(navigator, View | Menu, 1000));
+        Hold(navigator, None, 1100);
+
+        Hold(navigator, LeftBumper | RightBumper | Y, 1200);
+        Assert.Equal(new[] { PadAction.ToggleOverlay }, Hold(navigator, LeftBumper | RightBumper | Y, 1700));
+    }
+
+    [Fact]
+    public void AComboCanUseTheTriggers()
+    {
+        var navigator = new GamepadNavigator { Combo = LeftTrigger | RightTrigger };
+
+        Hold(navigator, LeftTrigger | RightTrigger, 0);
+        Assert.Equal(new[] { PadAction.ToggleOverlay }, Hold(navigator, LeftTrigger | RightTrigger, 500));
+    }
+
+    [Fact]
+    public void HoldingAnExtraButtonStillOpensTheOverlay()
+    {
+        var navigator = new GamepadNavigator();
+
+        Hold(navigator, View | Menu | X, 0);
+        Assert.Equal(new[] { PadAction.ToggleOverlay }, Hold(navigator, View | Menu | X, 500));
+    }
+
+    [Fact]
+    public void ChangingTheComboAppliesOnTheNextReading()
+    {
+        var navigator = new GamepadNavigator();
+        navigator.Combo = A | X;
+
+        Hold(navigator, A | X, 0);
+        Assert.Equal(new[] { PadAction.ToggleOverlay }, Hold(navigator, A | X, 500));
+    }
+
+    [Fact]
+    public void WhileSuspendedNothingFiresEvenWithTheComboHeld()
+    {
+        var navigator = new GamepadNavigator { TriggerSuspended = true };
+
+        Assert.Empty(Hold(navigator, View | Menu, 0));
+        Assert.Empty(Hold(navigator, View | Menu, 2000));
+        Assert.Empty(Hold(navigator, A, 2100, overlayOpen: true));
+    }
+
+    [Fact]
+    public void AfterResumingAComboStillHeldMustBeReleasedFirst()
+    {
+        var navigator = new GamepadNavigator { TriggerSuspended = true };
+        Hold(navigator, View | Menu, 0);
+
+        navigator.TriggerSuspended = false;
+        Assert.Empty(Hold(navigator, View | Menu, 100));
+        Assert.Empty(Hold(navigator, View | Menu, 2000));
+
+        Hold(navigator, None, 2100);
+        Hold(navigator, View | Menu, 2200);
+        Assert.Equal(new[] { PadAction.ToggleOverlay }, Hold(navigator, View | Menu, 2700));
     }
 
     [Fact]
@@ -47,8 +111,8 @@ public class GamepadNavigatorTests
     {
         var navigator = new GamepadNavigator();
 
-        Assert.Empty(navigator.Update(ButtonA, 0, 0, Ms(0), overlayOpen: false));
-        Assert.Empty(navigator.Update(DpadDown, 0, 0, Ms(100), overlayOpen: false));
+        Assert.Empty(Hold(navigator, A, 0));
+        Assert.Empty(Hold(navigator, DPadDown, 100));
     }
 
     [Fact]
@@ -56,9 +120,9 @@ public class GamepadNavigatorTests
     {
         var navigator = new GamepadNavigator();
 
-        Assert.Equal(new[] { PadAction.Accept }, navigator.Update(ButtonA, 0, 0, Ms(0), overlayOpen: true));
-        Assert.Empty(navigator.Update(ButtonA, 0, 0, Ms(100), overlayOpen: true));
-        Assert.Equal(new[] { PadAction.Back }, navigator.Update(ButtonB, 0, 0, Ms(200), overlayOpen: true));
+        Assert.Equal(new[] { PadAction.Accept }, Hold(navigator, A, 0, overlayOpen: true));
+        Assert.Empty(Hold(navigator, A, 100, overlayOpen: true));
+        Assert.Equal(new[] { PadAction.Back }, Hold(navigator, B, 200, overlayOpen: true));
     }
 
     [Fact]
@@ -66,10 +130,10 @@ public class GamepadNavigatorTests
     {
         var navigator = new GamepadNavigator();
 
-        Assert.Equal(new[] { PadAction.Down }, navigator.Update(DpadDown, 0, 0, Ms(0), overlayOpen: true));
-        Assert.Empty(navigator.Update(DpadDown, 0, 0, Ms(399), overlayOpen: true));
-        Assert.Equal(new[] { PadAction.Down }, navigator.Update(DpadDown, 0, 0, Ms(400), overlayOpen: true));
-        Assert.Equal(new[] { PadAction.Down }, navigator.Update(DpadDown, 0, 0, Ms(520), overlayOpen: true));
+        Assert.Equal(new[] { PadAction.Down }, Hold(navigator, DPadDown, 0, overlayOpen: true));
+        Assert.Empty(Hold(navigator, DPadDown, 399, overlayOpen: true));
+        Assert.Equal(new[] { PadAction.Down }, Hold(navigator, DPadDown, 400, overlayOpen: true));
+        Assert.Equal(new[] { PadAction.Down }, Hold(navigator, DPadDown, 520, overlayOpen: true));
     }
 
     [Fact]
@@ -77,7 +141,7 @@ public class GamepadNavigatorTests
     {
         var navigator = new GamepadNavigator();
 
-        Assert.Equal(new[] { PadAction.Up }, navigator.Update(0, 0, 20000, Ms(0), overlayOpen: true));
-        Assert.Equal(new[] { PadAction.Left }, navigator.Update(0, -20000, 0, Ms(50), overlayOpen: true));
+        Assert.Equal(new[] { PadAction.Up }, navigator.Update(None, 0, 20000, Ms(0), overlayOpen: true));
+        Assert.Equal(new[] { PadAction.Left }, navigator.Update(None, -20000, 0, Ms(50), overlayOpen: true));
     }
 }

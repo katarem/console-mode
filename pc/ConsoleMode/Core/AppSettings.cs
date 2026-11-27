@@ -107,6 +107,19 @@ public sealed class AppSettings
     /// <summary>Mantener View + Menú en un mando Xbox abre el overlay de audio y pantalla.</summary>
     public bool GamepadOverlayEnabled { get; set; } = true;
 
+    /// <summary>
+    /// Buttons that open the overlay, stored by name so that an unknown or hand-edited value falls back to the default
+    /// instead of making the whole file unreadable.
+    /// </summary>
+    public List<string> OverlayCombo { get; set; } = OverlayCombos.ToNames(OverlayCombos.Default);
+
+    [JsonIgnore]
+    public GamepadButtons OverlayComboButtons
+    {
+        get => OverlayCombos.FromNames(OverlayCombo);
+        set => OverlayCombo = OverlayCombos.ToNames(value);
+    }
+
     /// <summary>Minimizar los juegos en pantalla completa exclusiva para poder enseñar el overlay encima.</summary>
     public bool MinimizeExclusiveFullscreen { get; set; } = true;
 

@@ -12,41 +12,49 @@ public enum PadAction
 }
 
 /// <summary>
-/// Convierte el estado de un mando (botones XInput + stick izquierdo) en acciones del overlay:
-/// mantener View + Menú abre/cierra, la cruceta o el stick navegan arriba/abajo y ajustan a izquierda/derecha
-/// (con repetición al mantener),
-/// A elige y B cierra. No depende de Windows para poder probarse aparte.
+/// Turns the state of a gamepad (buttons + left stick) into overlay actions: holding the overlay combination
+/// (<see cref="Combo"/>, View + Menu by default) opens or closes it, the D-pad or the stick move up/down and adjust
+/// left/right (repeating while held), A accepts and B goes back. It does not depend on Windows so it can be tested.
 /// </summary>
 public sealed class GamepadNavigator
 {
-    public const ushort DpadUp = 0x0001;
-    public const ushort DpadDown = 0x0002;
-    public const ushort DpadLeft = 0x0004;
-    public const ushort DpadRight = 0x0008;
-    public const ushort Start = 0x0010; // Menú
-    public const ushort Back = 0x0020;  // View
-    public const ushort ButtonA = 0x1000;
-    public const ushort ButtonB = 0x2000;
-
-    private const ushort Combo = Start | Back;
     private const short StickThreshold = 16000;
 
     public TimeSpan ComboHold { get; init; } = TimeSpan.FromMilliseconds(500);
     public TimeSpan RepeatDelay { get; init; } = TimeSpan.FromMilliseconds(400);
     public TimeSpan RepeatInterval { get; init; } = TimeSpan.FromMilliseconds(120);
 
-    private ushort _previous;
+    /// <summary>Buttons that, held together for <see cref="ComboHold"/>, toggle the overlay.</summary>
+    public GamepadButtons Combo { get; set; } = OverlayCombos.Default;
+
+    /// <summary>
+    /// While true (a new combination is being captured) no action is emitted. A combination still held when it goes
+    /// back to false does not fire until it is released and held again.
+    /// </summary>
+    public bool TriggerSuspended { get; set; }
+
+    private GamepadButtons _previous;
     private TimeSpan? _comboSince;
     private bool _comboFired;
     private int _direction;
     private TimeSpan _nextRepeat;
 
-    public List<PadAction> Update(ushort buttons, short leftStickX, short leftStickY, TimeSpan now, bool overlayOpen)
+    public List<PadAction> Update(GamepadButtons buttons, short leftStickX, short leftStickY, TimeSpan now, bool overlayOpen)
     {
         var actions = new List<PadAction>();
+        var comboHeld = Combo != GamepadButtons.None && (buttons & Combo) == Combo;
 
-        // ----- Combinación View + Menú mantenida -----
-        if ((buttons & Combo) == Combo)
+        if (TriggerSuspended)
+        {
+            _comboSince = null;
+            _comboFired = comboHeld;
+            _previous = buttons;
+            _direction = 0;
+            return actions;
+        }
+
+        // ----- Overlay combination held -----
+        if (comboHeld)
         {
             _comboSince ??= now;
             if (!_comboFired && now - _comboSince >= ComboHold)
@@ -56,7 +64,7 @@ public sealed class GamepadNavigator
             }
             _previous = buttons;
             _direction = 0;
-            return actions; // mientras se mantiene la combinación no se navega
+            return actions; // no navigation while the combination is held
         }
         _comboSince = null;
         _comboFired = false;
@@ -68,11 +76,11 @@ public sealed class GamepadNavigator
             return actions;
         }
 
-        // ----- Dirección con repetición (arriba/abajo tiene prioridad sobre izquierda/derecha) -----
-        var direction = (buttons & DpadUp) != 0 || leftStickY > StickThreshold ? 1
-            : (buttons & DpadDown) != 0 || leftStickY < -StickThreshold ? 2
-            : (buttons & DpadLeft) != 0 || leftStickX < -StickThreshold ? 3
-            : (buttons & DpadRight) != 0 || leftStickX > StickThreshold ? 4
+        // ----- Direction with repeat (up/down wins over left/right) -----
+        var direction = Has(buttons, GamepadButtons.DPadUp) || leftStickY > StickThreshold ? 1
+            : Has(buttons, GamepadButtons.DPadDown) || leftStickY < -StickThreshold ? 2
+            : Has(buttons, GamepadButtons.DPadLeft) || leftStickX < -StickThreshold ? 3
+            : Has(buttons, GamepadButtons.DPadRight) || leftStickX > StickThreshold ? 4
             : 0;
         if (direction != _direction)
         {
@@ -89,12 +97,12 @@ public sealed class GamepadNavigator
             _nextRepeat = now + RepeatInterval;
         }
 
-        // ----- A / B al pulsar (no al mantener) -----
-        if (Pressed(buttons, ButtonA))
+        // ----- A / B on press (not while held) -----
+        if (Pressed(buttons, GamepadButtons.A))
         {
             actions.Add(PadAction.Accept);
         }
-        if (Pressed(buttons, ButtonB))
+        if (Pressed(buttons, GamepadButtons.B))
         {
             actions.Add(PadAction.Back);
         }
@@ -102,6 +110,8 @@ public sealed class GamepadNavigator
         _previous = buttons;
         return actions;
     }
+
+    private static bool Has(GamepadButtons buttons, GamepadButtons button) => (buttons & button) != 0;
 
     private static PadAction ToAction(int direction) => direction switch
     {
@@ -111,5 +121,5 @@ public sealed class GamepadNavigator
         _ => PadAction.Right,
     };
 
-    private bool Pressed(ushort buttons, ushort mask) => (buttons & mask) != 0 && (_previous & mask) == 0;
+    private bool Pressed(GamepadButtons buttons, GamepadButtons button) => Has(buttons, button) && !Has(_previous, button);
 }

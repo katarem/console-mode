@@ -44,6 +44,30 @@ public class AppSettingsTests
         Assert.True(settings.ImmersiveConsole);
         Assert.Equal(new[] { "Spotify" }, settings.ImmersiveAllowedPrograms);
         Assert.Equal("Pixel", Assert.Single(settings.TrustedDevices).Name);
+        Assert.Equal(GamepadButtons.View | GamepadButtons.Menu, settings.OverlayComboButtons);
+    }
+
+    [Fact]
+    public void AnInvalidStoredComboFallsBackWithoutLosingTheRest()
+    {
+        var json = Json190.Replace("\"GamepadOverlayEnabled\": true,", "\"GamepadOverlayEnabled\": true, \"OverlayCombo\": [ \"Foo\" ],");
+
+        var settings = AppSettings.FromJson(json)!;
+
+        Assert.Equal(OverlayCombos.Default, settings.OverlayComboButtons);
+        Assert.Equal(47900, settings.Port);
+        Assert.Single(settings.TrustedDevices);
+    }
+
+    [Fact]
+    public void TheComboIsSavedByName()
+    {
+        var settings = new AppSettings { OverlayComboButtons = GamepadButtons.LeftBumper | GamepadButtons.RightBumper };
+
+        var json = settings.ToJson();
+
+        Assert.Contains("\"LeftBumper\"", json);
+        Assert.Equal(GamepadButtons.LeftBumper | GamepadButtons.RightBumper, AppSettings.FromJson(json)!.OverlayComboButtons);
     }
 
     [Fact]
