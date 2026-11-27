@@ -1,0 +1,22 @@
+<Window
+    x:Class="WinUiPoc.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="WinUiPoc main window">
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+    <NavigationView x:Name="Nav" PaneDisplayMode="Left" IsBackButtonVisible="Collapsed" IsSettingsVisible="True">
+        <NavigationView.MenuItems>
+            <NavigationViewItem Content="Inicio" Icon="Home" IsSelected="True" />
+            <NavigationViewItem Content="Modos" Icon="TwoPage" />
+            <NavigationViewItem Content="Móviles" Icon="CellPhone" />
+            <NavigationViewItem Content="Encendido" Icon="Power" />
+        </NavigationView.MenuItems>
+        <StackPanel Padding="24" Spacing="12">
+            <TextBlock Text="Console Mode" Style="{StaticResource TitleTextBlockStyle}" />
+            <ToggleSwitch Header="Modo" OffContent="PC" OnContent="Consola" />
+            <TextBlock x:Name="CrossThread" Text="Waiting for WinForms..." />
+        </StackPanel>
+    </NavigationView>
+</Window>

@@ -1,0 +1,81 @@
+name: PoC WinUI 3
+
+# Temporary: proves the WinUI 3 main-window approach for ADR 0001 on a real Windows runner. Removed before the PR.
+on:
+  push:
+    branches: [feat/main-window-redesign]
+    paths:
+      - 'poc/**'
+      - '.github/workflows/poc-winui.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: poc-winui
+  cancel-in-progress: true
+
+jobs:
+  poc:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish single-file portable exe
+        run: >
+          dotnet publish poc/WinUiPoc/WinUiPoc.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+          -o poc-publish
+
+      - name: Output files and sizes
+        shell: pwsh
+        run: Get-ChildItem poc-publish | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}} | Format-Table -AutoSize
+
+      - name: Run and inspect windows
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:TEMP 'winuipoc.log'
+          Remove-Item $log -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath (Resolve-Path poc-publish\WinUiPoc.exe) -PassThru
+          Start-Sleep -Seconds 25
+          Add-Type -TypeDefinition @'
+          using System; using System.Collections.Generic; using System.Runtime.InteropServices; using System.Text;
+          public static class W {
+            delegate bool P(IntPtr h, IntPtr l);
+            [DllImport("user32.dll")] static extern bool EnumWindows(P p, IntPtr l);
+            [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+            [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+            [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+            public static List<string> Of(uint target) {
+              var r = new List<string>();
+              EnumWindows((h, l) => { uint pid; GetWindowThreadProcessId(h, out pid);
+                if (pid == target && IsWindowVisible(h)) { var s = new StringBuilder(256); GetWindowText(h, s, 256); r.Add(s.ToString()); }
+                return true; }, IntPtr.Zero);
+              return r;
+            }
+          }
+          '@
+          "Process alive: $(-not $p.HasExited)"
+          "Visible windows: $([W]::Of([uint32]$p.Id) -join ' | ')"
+          "Working set MB: $([math]::Round((Get-Process -Id $p.Id).WorkingSet64/1MB,1))"
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          New-Item -ItemType Directory -Force poc-out | Out-Null
+          $bmp.Save('poc-out\screen.png')
+          "--- PoC log ---"
+          Get-Content $log -ErrorAction SilentlyContinue
+          Copy-Item $log poc-out -ErrorAction SilentlyContinue
+          Stop-Process -Id $p.Id -ErrorAction SilentlyContinue
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: poc-winui
+          path: poc-out
