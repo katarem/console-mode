@@ -7,18 +7,37 @@ using QRCoder;
 namespace ConsoleMode.UI;
 
 /// <summary>Ventana principal: interruptor PC/Consola, perfiles de cada modo, móviles y ajustes.</summary>
+/// <remarks>
+/// Sizes, margins and paddings are 96 DPI logical units: WinForms scales them (AutoScaleDimensions + AutoScaleMode.Dpi)
+/// when the window is created and when it moves to a monitor with another scale. Texts wrap to the width of their
+/// container (<see cref="WrapLabel"/>) instead of a fixed maximum width, and long explanations live in tooltips shown
+/// from a «?» marker next to each option.
+/// </remarks>
 public sealed class MainForm : Form
 {
     private static readonly Color Accent = Color.FromArgb(76, 70, 229);
     private static readonly Color Inactive = Color.FromArgb(230, 230, 236);
+    private static readonly Size LogicalMinimumSize = new(560, 560);
+
+    // Fonts derived from the form font (see ApplyDerivedFonts), so they follow it when the scale changes.
+    private const string SemiboldFamily = "Segoe UI Semibold";
+    private const float LargeFontFactor = 13f / 9.5f;
 
     private readonly TrayApplicationContext _app;
     private AppSettings Settings => _app.Settings;
 
+    private readonly ToolTip _help = new() { AutoPopDelay = 30000, InitialDelay = 300, ReshowDelay = 100, ShowAlways = true };
+    private readonly List<Control> _headings = new();
+    private readonly List<Control> _helpMarkers = new();
+    private Font? _largeFont;
+    private Font? _semiboldFont;
+    private Font? _boldFont;
+
+    private readonly TabControl _tabs = new() { Dock = DockStyle.Fill, Margin = new Padding(0, 8, 0, 4) };
     private readonly Button _pcButton;
     private readonly Button _consoleButton;
     private readonly Label _modeLabel;
-    private readonly Label _statusLabel;
+    private readonly WrapLabel _statusLabel = new() { ForeColor = Color.DimGray, Margin = new Padding(3, 4, 3, 0) };
 
     private readonly ComboBox _pcDisplay = NewCombo();
     private readonly ComboBox _pcAudio = NewCombo();
@@ -29,46 +48,27 @@ public sealed class MainForm : Form
     private readonly ComboBox _pcComm = NewCombo();
     private readonly ComboBox _consoleComm = NewCombo();
     private readonly ComboBox _frontend = NewCombo();
-    private readonly Label _frontendPathLabel = new() { Text = "Programa:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 6, 8, 6) };
+    private readonly Label _frontendPathLabel = new() { Text = "Ruta:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 6, 8, 6) };
     private readonly TextBox _frontendPath = new() { Dock = DockStyle.Fill, Margin = new Padding(3, 3, 3, 6) };
     private readonly Button _frontendBrowse = new() { Text = "Examinar…", AutoSize = true, Margin = new Padding(3, 2, 3, 6) };
     private readonly Label _frontendArgsLabel = new() { Text = "Argumentos:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 6, 8, 6) };
     private readonly TextBox _frontendArgs = new() { Dock = DockStyle.Fill, Margin = new Padding(3, 3, 3, 6) };
-    private readonly CheckBox _launchFrontend = new() { Text = "Abrir el frontal al activar el modo consola", AutoSize = true };
-    private readonly CheckBox _moveFrontend = new() { Text = "Forzar el frontal en la pantalla del modo consola", AutoSize = true };
-    private readonly CheckBox _closeFrontend = new() { Text = "Cerrar el frontal al volver al modo PC", AutoSize = true };
-    private readonly CheckBox _minimizeExclusive = new()
-    {
-        Text = "Con juegos en pantalla completa exclusiva, minimizarlos para ver el overlay (y restaurarlos al cerrarlo)",
-        AutoSize = true,
-        MaximumSize = new Size(520, 0),
-        Margin = new Padding(22, 0, 3, 3),
-    };
-    private readonly CheckBox _immersive = new() { Text = "Modo consola inmersivo: solo se ven el frontal, los juegos y el overlay", AutoSize = true };
-    private readonly Label _immersiveHint = new()
-    {
-        Text = "Spotify, Discord y cualquier ventana que no sea de un juego o de una tienda se ocultan en cuanto aparecen " +
-               "y vuelven a verse al pasar a modo PC.",
-        AutoSize = true,
-        MaximumSize = new Size(500, 0),
-        ForeColor = Color.DimGray,
-        Margin = new Padding(22, 0, 3, 3),
-    };
-    private readonly Label _immersiveAllowedLabel = new() { Text = "Permitir también:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(22, 6, 8, 6) };
+    private readonly CheckBox _launchFrontend = new() { Text = "Abrirlo al entrar en modo consola", AutoSize = true };
+    private readonly CheckBox _moveFrontend = new() { Text = "Forzarlo en la pantalla del modo consola", AutoSize = true };
+    private readonly CheckBox _closeFrontend = new() { Text = "Cerrarlo al volver a modo PC", AutoSize = true };
+    private readonly CheckBox _gamepadOverlay = new() { Text = "Abrir el overlay con View + Menú", AutoSize = true };
+    private readonly CheckBox _minimizeExclusive = new() { Text = "Minimizar juegos en pantalla completa exclusiva", AutoSize = true };
+    private readonly CheckBox _immersive = new() { Text = "Activar el modo consola inmersivo", AutoSize = true };
+    private readonly Label _immersiveAllowedLabel = new() { Text = "Permitir también:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 6, 8, 6) };
     private readonly TextBox _immersiveAllowed = new()
     {
         Dock = DockStyle.Fill,
         Margin = new Padding(3, 3, 3, 6),
-        PlaceholderText = "Nombres de programa separados por comas (p. ej. Spotify)",
-    };
-    private readonly CheckBox _gamepadOverlay = new()
-    {
-        Text = "Overlay con el mando: mantén View + Menú medio segundo para cambiar audio y pantalla",
-        AutoSize = true,
+        PlaceholderText = "Programas separados por comas (p. ej. Spotify)",
     };
 
-    private readonly PictureBox _qr = new() { Size = new Size(220, 220), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.White };
-    private readonly Label _addressLabel = new() { AutoSize = true, MaximumSize = new Size(260, 0) };
+    private readonly PictureBox _qr = new() { Size = new Size(200, 200), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.White };
+    private readonly WrapLabel _addressLabel = new() { Margin = new Padding(12, 0, 0, 0) };
     private readonly ListView _devices = new()
     {
         View = View.Details,
@@ -78,97 +78,83 @@ public sealed class MainForm : Form
         Dock = DockStyle.Fill,
     };
 
-    private readonly CheckBox _showTray = new() { Text = "Mostrar icono en la bandeja del sistema (iconos ocultos)", AutoSize = true };
+    private readonly CheckBox _showTray = new() { Text = "Icono en la bandeja del sistema", AutoSize = true };
     private readonly CheckBox _startWithWindows = new() { Text = "Iniciar con Windows (en segundo plano)", AutoSize = true };
     private readonly NumericUpDown _port = new() { Minimum = 1024, Maximum = 65535, Width = 90 };
     private readonly CheckBox _checkUpdates = new() { Text = "Buscar actualizaciones automáticamente", AutoSize = true };
-    private readonly Label _updateLabel = new() { AutoSize = true, MaximumSize = new Size(540, 0), Margin = new Padding(3, 6, 3, 6) };
+    private readonly WrapLabel _updateLabel = new() { Margin = new Padding(3, 6, 3, 6) };
     private readonly Button _checkUpdatesButton = new() { Text = "Buscar actualizaciones", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
     private readonly Button _installUpdateButton = new() { Text = "Actualizar ahora", AutoSize = true, Padding = new Padding(8, 2, 8, 2), Visible = false };
 
-    private readonly CheckBox _wakeNetwork = new()
-    {
-        Text = "Tarjeta de red: activar Wake-on-LAN (solo con el «paquete mágico» que envía el móvil)",
-        AutoSize = true,
-        MaximumSize = new Size(540, 0),
-    };
-    private readonly CheckBox _wakeGamepad = new()
-    {
-        Text = "Mando: permitir que el adaptador Xbox o el Bluetooth despierten el PC de la suspensión",
-        AutoSize = true,
-        MaximumSize = new Size(540, 0),
-    };
-    private readonly CheckBox _wakeFastStartup = new()
-    {
-        Text = "Desactivar el inicio rápido de Windows (en muchos PCs hace falta para encender desde apagado)",
-        AutoSize = true,
-        MaximumSize = new Size(540, 0),
-    };
-    private readonly CheckBox _wakeNoSignIn = new()
-    {
-        Text = "No pedir el PIN al volver de la suspensión (al encender o reiniciar se sigue pidiendo)",
-        AutoSize = true,
-        MaximumSize = new Size(540, 0),
-    };
+    private readonly CheckBox _wakeNetwork = new() { Text = "Activar Wake-on-LAN en la tarjeta de red", AutoSize = true };
+    private readonly CheckBox _wakeGamepad = new() { Text = "Despertar el PC con el mando", AutoSize = true };
+    private readonly CheckBox _wakeFastStartup = new() { Text = "Desactivar el inicio rápido de Windows", AutoSize = true };
+    private readonly CheckBox _wakeNoSignIn = new() { Text = "No pedir el PIN al volver de la suspensión", AutoSize = true };
     private readonly Button _wakeApply = new() { Text = "Aplicar", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
     private readonly Button _wakeRevert = new() { Text = "Deshacer todo", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
-    private readonly Label _wakeStatus = new() { AutoSize = true, MaximumSize = new Size(540, 0), Margin = new Padding(3, 8, 3, 3) };
+    private readonly WrapLabel _wakeStatus = new() { Margin = new Padding(3, 8, 3, 3) };
+    private readonly Button _guideToggle = new() { Text = "Ver guía", AutoSize = true, Padding = new Padding(8, 2, 8, 2), Margin = new Padding(3, 10, 3, 6) };
 
     private bool _loading;
 
     public MainForm(TrayApplicationContext app)
     {
         _app = app;
+        SuspendLayout();
 
         Text = $"Console Mode {Application.ProductVersion.Split('+')[0]}";
         Icon = app.AppIcon;
-        AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Segoe UI", 9.5f);
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(620, 660);
-        MinimumSize = new Size(560, 560);
+        MinimumSize = LogicalMinimumSize;
 
         // ---------- Interruptor PC / Consola ----------
-        _modeLabel = new Label { AutoSize = true, Font = new Font("Segoe UI Semibold", 13f), Margin = new Padding(0, 0, 0, 8) };
+        _modeLabel = new Label { AutoSize = true, Margin = new Padding(4, 0, 0, 8) };
         _pcButton = NewModeButton("🖥  Modo PC");
         _consoleButton = NewModeButton("🎮  Modo Consola");
         _pcButton.Click += (_, _) => _ = _app.Switcher.SwitchAsync(AppMode.Pc);
         _consoleButton.Click += (_, _) => _ = _app.Switcher.SwitchAsync(AppMode.Console);
 
-        var switchRow = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2 };
+        var switchRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = Padding.Empty };
         switchRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         switchRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         switchRow.Controls.Add(_pcButton, 0, 0);
         switchRow.Controls.Add(_consoleButton, 1, 0);
 
-        var header = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Padding = new Padding(12, 12, 12, 4) };
-        header.Controls.Add(_modeLabel);
-        header.Controls.Add(switchRow);
-
-        _statusLabel = new Label { Dock = DockStyle.Bottom, AutoSize = false, Height = 28, Padding = new Padding(12, 6, 12, 0), ForeColor = Color.DimGray };
-
         // ---------- Pestañas ----------
-        var tabs = new TabControl { Dock = DockStyle.Fill, Padding = new Point(12, 6) };
-        tabs.TabPages.Add(BuildModesTab());
+        _tabs.TabPages.Add(BuildModesTab());
         var devicesTab = BuildDevicesTab();
-        tabs.TabPages.Add(devicesTab);
-        tabs.TabPages.Add(BuildPowerTab());
-        tabs.TabPages.Add(BuildSettingsTab());
-        tabs.SelectedIndexChanged += (_, _) =>
+        _tabs.TabPages.Add(devicesTab);
+        _tabs.TabPages.Add(BuildPowerTab());
+        _tabs.TabPages.Add(BuildSettingsTab());
+        _tabs.SelectedIndexChanged += (_, _) =>
         {
-            if (tabs.SelectedTab == devicesTab)
+            if (_tabs.SelectedTab == devicesTab)
             {
                 RefreshQr();
                 RefreshDevices();
             }
         };
 
-        var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12, 8, 12, 4) };
-        body.Controls.Add(tabs);
+        // A single column whose rows take their height from their content; the tabs take the rest.
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(12, 12, 12, 6) };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.Controls.Add(_modeLabel, 0, 0);
+        root.Controls.Add(switchRow, 0, 1);
+        root.Controls.Add(_tabs, 0, 2);
+        root.Controls.Add(_statusLabel, 0, 3);
+        Controls.Add(root);
 
-        Controls.Add(body);
-        Controls.Add(_statusLabel);
-        Controls.Add(header);
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
+        ResumeLayout(false);
+        PerformLayout();
+        ApplyDpiState();
 
         LoadValues();
         UpdateModeState(_app.Switcher.State);
@@ -184,77 +170,70 @@ public sealed class MainForm : Form
 
     private TabPage BuildModesTab()
     {
-        var page = new TabPage("Modos") { Padding = new Padding(10), AutoScroll = true };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1 };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        var page = NewPage("Modos");
+        var stack = NewStack();
 
         var pcGroup = NewGroup("🖥  Modo PC");
-        var pcGrid = NewGrid();
-        AddRow(pcGrid, "Pantalla principal:", _pcDisplay);
-        AddRow(pcGrid, "Salida de audio:", _pcAudio);
-        AddRow(pcGrid, "Micrófono:", _pcMic);
-        AddRow(pcGrid, "Comunicaciones:", _pcComm);
-        pcGroup.Controls.Add(pcGrid);
-
+        pcGroup.Controls.Add(BuildProfileGrid(_pcDisplay, _pcAudio, _pcMic, _pcComm));
         var consoleGroup = NewGroup("🎮  Modo Consola");
-        var consoleGrid = NewGrid();
-        AddRow(consoleGrid, "Pantalla principal:", _consoleDisplay);
-        AddRow(consoleGrid, "Salida de audio:", _consoleAudio);
-        AddRow(consoleGrid, "Micrófono:", _consoleMic);
-        AddRow(consoleGrid, "Comunicaciones:", _consoleComm);
-        AddRow(consoleGrid, "Frontal:", _frontend);
-        var pathRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = Padding.Empty };
-        pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        pathRow.Controls.Add(_frontendPath, 0, 0);
-        pathRow.Controls.Add(_frontendBrowse, 1, 0);
-        consoleGrid.Controls.Add(_frontendPathLabel);
-        consoleGrid.Controls.Add(pathRow);
-        consoleGrid.Controls.Add(_frontendArgsLabel);
-        consoleGrid.Controls.Add(_frontendArgs);
-        consoleGrid.Controls.Add(_launchFrontend);
-        consoleGrid.SetColumnSpan(_launchFrontend, 2);
-        consoleGrid.Controls.Add(_moveFrontend);
-        consoleGrid.SetColumnSpan(_moveFrontend, 2);
-        consoleGrid.Controls.Add(_closeFrontend);
-        consoleGrid.SetColumnSpan(_closeFrontend, 2);
-        consoleGrid.Controls.Add(_gamepadOverlay);
-        consoleGrid.SetColumnSpan(_gamepadOverlay, 2);
-        consoleGrid.Controls.Add(_minimizeExclusive);
-        consoleGrid.SetColumnSpan(_minimizeExclusive, 2);
-        consoleGrid.Controls.Add(_immersive);
-        consoleGrid.SetColumnSpan(_immersive, 2);
-        consoleGrid.Controls.Add(_immersiveHint);
-        consoleGrid.SetColumnSpan(_immersiveHint, 2);
-        consoleGrid.Controls.Add(_immersiveAllowedLabel);
-        consoleGrid.Controls.Add(_immersiveAllowed);
-        consoleGroup.Controls.Add(consoleGrid);
+        consoleGroup.Controls.Add(BuildProfileGrid(_consoleDisplay, _consoleAudio, _consoleMic, _consoleComm));
 
-        var refresh = new Button { Text = "Actualizar pantallas y audio", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
+        var refresh = new Button { Text = "Actualizar pantallas y audio", AutoSize = true, Padding = new Padding(8, 2, 8, 2), Margin = new Padding(3, 0, 3, 3) };
         refresh.Click += (_, _) =>
         {
             LoadDeviceLists();
             SetStatus("Lista de pantallas y dispositivos de audio actualizada.");
         };
 
-        var hint = new Label
-        {
-            Text = "«(No cambiar)» deja la pantalla o el audio como estén. «Comunicaciones» es la salida que usan Discord, " +
-                   "Teams o Zoom con el dispositivo de comunicaciones predeterminado: así puedes oír el juego en la TV y el chat " +
-                   "en los auriculares. El micrófono se usa para todo, también para comunicaciones. El frontal (Big Picture, " +
-                   "Playnite u otro programa, como LaunchBox Big Box o EmulationStation) se abre en la pantalla principal; si " +
-                   "se abre en otra, Console Mode lo mueve a la del modo consola.",
-            AutoSize = true,
-            MaximumSize = new Size(540, 0),
-            ForeColor = Color.DimGray,
-            Margin = new Padding(3, 8, 3, 3),
-        };
+        // ---------- Opciones del modo consola ----------
+        var frontendGroup = NewGroup("Frontal");
+        var frontendGrid = NewGrid();
+        AddRow(frontendGrid, "Programa:", _frontend,
+            "Lo que se abre al entrar en modo consola: Steam Big Picture, Playnite u otro programa (LaunchBox Big Box, " +
+            "EmulationStation, un launcher propio...). Se abre en la pantalla principal.");
+        var pathRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = Padding.Empty };
+        pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        pathRow.Controls.Add(_frontendPath, 0, 0);
+        pathRow.Controls.Add(_frontendBrowse, 1, 0);
+        frontendGrid.Controls.Add(_frontendPathLabel);
+        frontendGrid.Controls.Add(pathRow);
+        frontendGrid.Controls.Add(_frontendArgsLabel);
+        frontendGrid.Controls.Add(_frontendArgs);
+        AddSpanning(frontendGrid, _launchFrontend);
+        AddSpanning(frontendGrid, AddHelp(_moveFrontend,
+            "Si el frontal se abre en otra pantalla (Steam a veces recuerda la última posición), Console Mode lo busca " +
+            "durante un minuto y lo mueve y lo ajusta a la pantalla del modo consola."));
+        AddSpanning(frontendGrid, _closeFrontend);
+        frontendGroup.Controls.Add(frontendGrid);
 
-        layout.Controls.Add(pcGroup);
-        layout.Controls.Add(consoleGroup);
-        layout.Controls.Add(refresh);
-        layout.Controls.Add(hint);
-        page.Controls.Add(layout);
+        var overlayGroup = NewGroup("Overlay del mando");
+        var overlayStack = NewStack(DockStyle.Fill);
+        overlayStack.Controls.Add(AddHelp(_gamepadOverlay,
+            "Mantén View + Menú medio segundo en un mando Xbox para cambiar de modo, de audio, de micrófono o de " +
+            "pantalla, ajustar el volumen, cerrar el juego o apagar el PC desde el sofá."));
+        overlayStack.Controls.Add(AddHelp(_minimizeExclusive,
+            "Los juegos en pantalla completa exclusiva no dejan ver ninguna ventana encima: se minimizan al abrir el " +
+            "overlay y se restauran al cerrarlo."));
+        overlayGroup.Controls.Add(overlayStack);
+
+        var immersiveGroup = NewGroup("Modo inmersivo");
+        var immersiveGrid = NewGrid();
+        AddSpanning(immersiveGrid, AddHelp(_immersive,
+            "En modo consola solo se ven el frontal, los juegos y el overlay. Spotify, Discord y cualquier ventana que " +
+            "no sea de un juego o de una tienda se ocultan en cuanto aparecen y vuelven a verse al pasar a modo PC."));
+        immersiveGrid.Controls.Add(_immersiveAllowedLabel);
+        immersiveGrid.Controls.Add(_immersiveAllowed);
+        immersiveGroup.Controls.Add(immersiveGrid);
+
+        stack.Controls.Add(pcGroup);
+        stack.Controls.Add(consoleGroup);
+        stack.Controls.Add(AddHelp(refresh, "Vuelve a leer las pantallas y los dispositivos de audio conectados."));
+        stack.Controls.Add(Heading("Opciones del modo consola"));
+        stack.Controls.Add(frontendGroup);
+        stack.Controls.Add(overlayGroup);
+        stack.Controls.Add(immersiveGroup);
+        page.Controls.Add(stack);
 
         _pcDisplay.SelectedIndexChanged += (_, _) => OnDisplayChanged(_pcDisplay, Settings.PcProfile);
         _consoleDisplay.SelectedIndexChanged += (_, _) => OnDisplayChanged(_consoleDisplay, Settings.ConsoleProfile);
@@ -329,6 +308,22 @@ public sealed class MainForm : Form
         return page;
     }
 
+    /// <summary>Pantalla y audio de un modo.</summary>
+    private TableLayoutPanel BuildProfileGrid(ComboBox display, ComboBox audio, ComboBox mic, ComboBox comm)
+    {
+        var grid = NewGrid();
+        AddRow(grid, "Pantalla principal:", display,
+            "Pantalla que pasa a ser la principal en este modo. «(No cambiar)» la deja como esté.");
+        AddRow(grid, "Salida de audio:", audio,
+            "Salida de audio predeterminada en este modo. «(No cambiar)» la deja como esté.");
+        AddRow(grid, "Micrófono:", mic,
+            "Micrófono predeterminado en este modo. Se usa para todo, también para comunicaciones.");
+        AddRow(grid, "Comunicaciones:", comm,
+            "Salida que usan Discord, Teams o Zoom con el dispositivo de comunicaciones predeterminado: así puedes oír " +
+            "el juego en la TV y el chat en los auriculares.");
+        return grid;
+    }
+
     private TabPage BuildDevicesTab()
     {
         var page = new TabPage("Móviles") { Padding = new Padding(10) };
@@ -338,29 +333,35 @@ public sealed class MainForm : Form
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-        var qrInfo = new Label
+        var right = NewStack(DockStyle.Fill);
+        right.Controls.Add(new WrapLabel
         {
-            Text = "Escanea este código con la app Console Mode del móvil, o búscalo desde la app con «Buscar en la red».\n\n" +
-                   "La primera vez tendrás que aceptar el dispositivo en este PC; después quedará guardado como de confianza.",
-            AutoSize = true,
-            MaximumSize = new Size(260, 0),
+            Text = "Escanea el código con la app Console Mode del móvil.",
+            Margin = new Padding(12, 0, 0, 4),
+        });
+        right.Controls.Add(new WrapLabel
+        {
+            Text = "O búscalo desde la app con «Buscar en la red».",
+            Margin = new Padding(12, 0, 0, 8),
+        });
+        right.Controls.Add(new WrapLabel
+        {
+            Text = "La primera vez tendrás que aceptar el móvil en este PC.",
+            ForeColor = Color.DimGray,
             Margin = new Padding(12, 0, 0, 12),
-        };
-        var right = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false };
-        right.Controls.Add(qrInfo);
+        });
         right.Controls.Add(_addressLabel);
-        _addressLabel.Margin = new Padding(12, 0, 0, 0);
-        _addressLabel.Font = new Font(Font, FontStyle.Bold);
 
+        _qr.Margin = new Padding(3, 3, 3, 10);
         layout.Controls.Add(_qr, 0, 0);
         layout.Controls.Add(right, 1, 0);
 
         var devicesGroup = NewGroup("Dispositivos de confianza");
-        devicesGroup.Dock = DockStyle.Fill;
         devicesGroup.AutoSize = false;
-        _devices.Columns.Add("Nombre", 200);
-        _devices.Columns.Add("Añadido", 130);
-        _devices.Columns.Add("Última conexión", 140);
+        _devices.Columns.Add("Nombre");
+        _devices.Columns.Add("Añadido");
+        _devices.Columns.Add("Última conexión");
+        _devices.Resize += (_, _) => FitDeviceColumns();
 
         var remove = new Button { Text = "Quitar dispositivo", AutoSize = true, Dock = DockStyle.Bottom, Enabled = false };
         _devices.SelectedIndexChanged += (_, _) => remove.Enabled = _devices.SelectedItems.Count > 0;
@@ -389,80 +390,80 @@ public sealed class MainForm : Form
 
     private TabPage BuildPowerTab()
     {
-        var page = new TabPage("Encendido") { Padding = new Padding(10), AutoScroll = true };
-        var layout = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-        };
+        var page = NewPage("Encendido");
+        var stack = NewStack();
 
-        layout.Controls.Add(Paragraph(
-            "Enciende o despierta este PC desde el móvil con Wake-on-LAN, y despiértalo con el mando si tu hardware lo " +
-            "permite. Console Mode puede preparar Windows por ti; lo único que tienes que hacer a mano es activar " +
-            "Wake-on-LAN en la BIOS (mira la guía de abajo)."));
+        stack.Controls.Add(Paragraph(
+            "Enciende o despierta este PC desde el móvil, o con el mando si tu hardware lo permite. Console Mode prepara " +
+            "Windows; tú solo tienes que activar Wake-on-LAN en la BIOS (mira la guía)."));
 
         var setup = NewGroup("Preparar Windows");
-        setup.Dock = DockStyle.None;
-        setup.MinimumSize = new Size(540, 0);
-        var setupFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
-        setupFlow.Controls.Add(_wakeNetwork);
-        setupFlow.Controls.Add(_wakeGamepad);
-        setupFlow.Controls.Add(_wakeFastStartup);
-        setupFlow.Controls.Add(_wakeNoSignIn);
-        var setupButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 8, 0, 0) };
+        var setupStack = NewStack(DockStyle.Fill);
+        setupStack.Controls.Add(AddHelp(_wakeNetwork,
+            "Solo con el «paquete mágico» que envía el móvil: el PC no se enciende con cualquier tráfico de la red."));
+        setupStack.Controls.Add(AddHelp(_wakeGamepad,
+            "Permite que el adaptador Xbox o el Bluetooth despierten el PC de la suspensión. Desde apagado no es posible."));
+        setupStack.Controls.Add(AddHelp(_wakeFastStartup,
+            "En muchos PCs hace falta para poder encenderlo desde apagado."));
+        setupStack.Controls.Add(AddHelp(_wakeNoSignIn,
+            "Al volver de la suspensión no se pide el PIN. Al encender o reiniciar se sigue pidiendo."));
+        var setupButtons = NewButtonRow();
+        setupButtons.Margin = new Padding(0, 8, 0, 0);
         setupButtons.Controls.Add(_wakeApply);
         setupButtons.Controls.Add(_wakeRevert);
-        setupFlow.Controls.Add(setupButtons);
-        setupFlow.Controls.Add(Paragraph(
+        setupStack.Controls.Add(AddHelp(setupButtons,
             "Windows pedirá permiso de administrador. Console Mode guarda cómo estaba cada ajuste: con «Deshacer todo», " +
             "o al desinstalar la app, todo vuelve a quedar como antes. Al aplicar, la red puede cortarse un momento."));
-        setupFlow.Controls.Add(_wakeStatus);
-        setup.Controls.Add(setupFlow);
-        layout.Controls.Add(setup);
+        setupStack.Controls.Add(_wakeStatus);
+        setup.Controls.Add(setupStack);
+        stack.Controls.Add(setup);
 
         var guide = NewGroup("Guía");
-        guide.Dock = DockStyle.None;
-        guide.MinimumSize = new Size(540, 0);
-        var guideFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
-        guideFlow.Controls.Add(Heading("1. Activa Wake-on-LAN en la BIOS"));
-        guideFlow.Controls.Add(Paragraph(
+        guide.Visible = false;
+        var guideStack = NewStack(DockStyle.Fill);
+        guideStack.Controls.Add(Heading("1. Activa Wake-on-LAN en la BIOS"));
+        guideStack.Controls.Add(Paragraph(
             "Reinicia el PC y entra en la BIOS/UEFI (normalmente con Supr o F2 al arrancar). Según el fabricante, la " +
             "opción se llama «Wake on LAN», «Power On By PCI-E», «Resume by PCI-E Device» o «Remote Wake Up» y suele " +
             "estar en Energía o APM. Si existe «ErP» o «Deep Sleep», desactívalo: deja la tarjeta de red sin corriente " +
             "con el PC apagado."));
-        guideFlow.Controls.Add(Heading("2. Conecta el PC por cable"));
-        guideFlow.Controls.Add(Paragraph(
+        guideStack.Controls.Add(Heading("2. Conecta el PC por cable"));
+        guideStack.Controls.Add(Paragraph(
             "Wake-on-LAN funciona de forma fiable por Ethernet. Por Wi-Fi casi nunca enciende el PC apagado, y desde " +
             "suspensión solo en algunos equipos."));
-        guideFlow.Controls.Add(Heading("3. Pulsa «Aplicar» y abre la app del móvil"));
-        guideFlow.Controls.Add(Paragraph(
+        guideStack.Controls.Add(Heading("3. Pulsa «Aplicar» y abre la app del móvil"));
+        guideStack.Controls.Add(Paragraph(
             "Conecta el móvil a este PC al menos una vez con la versión nueva de la app: así guarda los datos para " +
             "encenderlo. Después, con el PC apagado o en suspensión, aparece el botón «Encender el PC»."));
-        guideFlow.Controls.Add(Heading("Con el mando"));
-        guideFlow.Controls.Add(Paragraph(
+        guideStack.Controls.Add(Heading("Con el mando"));
+        guideStack.Controls.Add(Paragraph(
             "El mando solo puede despertar el PC de la suspensión, y depende del adaptador y de la placa base: pruébalo " +
             "pulsando el botón Xbox con el PC suspendido. Desde apagado no es posible."));
-        guideFlow.Controls.Add(Heading("Entrar sin escribir la contraseña"));
-        guideFlow.Controls.Add(Paragraph(
+        guideStack.Controls.Add(Heading("Entrar sin escribir la contraseña"));
+        guideStack.Controls.Add(Paragraph(
             "Si quieres que Windows inicie sesión solo al encender, configúralo con las herramientas de Windows: Console " +
             "Mode no guarda tu contraseña. En «Cuentas de usuario» (netplwiz), desmarca «Los usuarios deben escribir su " +
             "nombre y contraseña». Si no aparece esa casilla, en Configuración → Cuentas → Opciones de inicio de sesión " +
             "desactiva «Para mayor seguridad, permitir solo el inicio de sesión de Windows Hello». Para deshacerlo, " +
             "vuelve a marcar la casilla."));
-        var guideButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        var guideButtons = NewButtonRow();
         var netplwiz = new Button { Text = "Abrir «Cuentas de usuario»", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
         netplwiz.Click += (_, _) => OpenExternal("netplwiz.exe");
         var signInOptions = new Button { Text = "Abrir opciones de inicio de sesión", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
         signInOptions.Click += (_, _) => OpenExternal("ms-settings:signinoptions");
         guideButtons.Controls.Add(netplwiz);
         guideButtons.Controls.Add(signInOptions);
-        guideFlow.Controls.Add(guideButtons);
-        guide.Controls.Add(guideFlow);
-        layout.Controls.Add(guide);
+        guideStack.Controls.Add(guideButtons);
+        guide.Controls.Add(guideStack);
 
-        page.Controls.Add(layout);
+        _guideToggle.Click += (_, _) =>
+        {
+            guide.Visible = !guide.Visible;
+            _guideToggle.Text = guide.Visible ? "Ocultar guía" : "Ver guía";
+        };
+        stack.Controls.Add(_guideToggle);
+        stack.Controls.Add(guide);
+        page.Controls.Add(stack);
 
         _wakeApply.Click += async (_, _) =>
         {
@@ -553,45 +554,33 @@ public sealed class MainForm : Form
         }
     }
 
-    private static Label Heading(string text) => new()
+    private Label Heading(string text)
     {
-        Text = text,
-        AutoSize = true,
-        MaximumSize = new Size(530, 0),
-        Font = new Font("Segoe UI Semibold", 9.5f),
-        Margin = new Padding(3, 8, 3, 2),
-    };
+        var heading = new Label { Text = text, AutoSize = true, Margin = new Padding(3, 10, 3, 4) };
+        _headings.Add(heading);
+        return heading;
+    }
 
-    private static Label Paragraph(string text) => new()
+    private static WrapLabel Paragraph(string text) => new()
     {
         Text = text,
-        AutoSize = true,
-        MaximumSize = new Size(530, 0),
         ForeColor = Color.DimGray,
         Margin = new Padding(3, 2, 3, 6),
     };
 
     private TabPage BuildSettingsTab()
     {
-        var page = new TabPage("Ajustes") { Padding = new Padding(10), AutoScroll = true };
-        var layout = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        var page = NewPage("Ajustes");
+        var stack = NewStack();
 
-        var trayHint = new Label
-        {
-            Text = "Console Mode siempre sigue funcionando en segundo plano al cerrar esta ventana. " +
-                   "Si ocultas el icono, vuelve a abrir Console Mode (menú Inicio o el .exe) para ver esta ventana.",
-            AutoSize = true,
-            MaximumSize = new Size(540, 0),
-            ForeColor = Color.DimGray,
-            Margin = new Padding(22, 0, 3, 12),
-        };
+        var portRow = NewButtonRow();
+        portRow.WrapContents = false;
+        portRow.Margin = new Padding(0, 8, 0, 8);
+        portRow.Controls.Add(new Label { Text = "Puerto de escucha:", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 6, 3, 3) });
+        portRow.Controls.Add(AddHelp(_port, "Puerto en el que el móvil se conecta a este PC. Se aplica al reiniciar la app."));
 
-        var portRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 12) };
-        portRow.Controls.Add(new Label { Text = "Puerto de escucha:", AutoSize = true, Margin = new Padding(3, 6, 3, 3) });
-        portRow.Controls.Add(_port);
-        portRow.Controls.Add(new Label { Text = "(se aplica al reiniciar la app)", AutoSize = true, ForeColor = Color.DimGray, Margin = new Padding(6, 6, 3, 3) });
-
-        var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 12, 0, 0) };
+        var buttons = NewButtonRow();
+        buttons.Margin = new Padding(0, 4, 0, 0);
         var openFolder = new Button { Text = "Abrir carpeta de configuración", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
         openFolder.Click += (_, _) => Process.Start(new ProcessStartInfo(AppSettings.Directory) { UseShellExecute = true });
         var exit = new Button { Text = "Salir de Console Mode", AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
@@ -599,14 +588,15 @@ public sealed class MainForm : Form
         buttons.Controls.Add(openFolder);
         buttons.Controls.Add(exit);
 
-        layout.Controls.Add(_showTray);
-        layout.Controls.Add(trayHint);
-        layout.Controls.Add(_startWithWindows);
-        layout.Controls.Add(new Label { AutoSize = true, Height = 8 });
-        layout.Controls.Add(portRow);
-        layout.Controls.Add(BuildUpdatesGroup());
-        layout.Controls.Add(buttons);
-        page.Controls.Add(layout);
+        stack.Controls.Add(AddHelp(_showTray,
+            "El icono aparece en «iconos ocultos». Console Mode sigue funcionando en segundo plano al cerrar esta " +
+            "ventana; si ocultas el icono, vuelve a abrir Console Mode (menú Inicio o el .exe) para verla."));
+        stack.Controls.Add(AddHelp(_startWithWindows,
+            "Arranca al iniciar sesión, directamente en segundo plano, sin abrir esta ventana."));
+        stack.Controls.Add(portRow);
+        stack.Controls.Add(BuildUpdatesGroup());
+        stack.Controls.Add(buttons);
+        page.Controls.Add(stack);
 
         _showTray.CheckedChanged += (_, _) =>
         {
@@ -643,28 +633,22 @@ public sealed class MainForm : Form
 
     private GroupBox BuildUpdatesGroup()
     {
-        var group = new GroupBox
-        {
-            Text = "Actualizaciones",
-            AutoSize = true,
-            Padding = new Padding(10, 6, 10, 8),
-            Margin = new Padding(0, 4, 0, 8),
-            MinimumSize = new Size(540, 0),
-        };
-        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
-        var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        var group = NewGroup("Actualizaciones");
+        group.Margin = new Padding(0, 4, 0, 8);
+        var stack = NewStack(DockStyle.Fill);
+        var buttons = NewButtonRow();
         buttons.Controls.Add(_checkUpdatesButton);
         buttons.Controls.Add(_installUpdateButton);
-        flow.Controls.Add(new Label
+        var edition = Updater.IsInstalled ? "instalada" : "portable";
+        stack.Controls.Add(new WrapLabel
         {
-            Text = $"Versión {Updater.CurrentVersion} · {(Updater.IsInstalled ? "instalada" : "portable")}",
-            AutoSize = true,
+            Text = $"Versión {Updater.CurrentVersion} · {edition}",
             Margin = new Padding(3, 3, 3, 3),
         });
-        flow.Controls.Add(_updateLabel);
-        flow.Controls.Add(buttons);
-        flow.Controls.Add(_checkUpdates);
-        group.Controls.Add(flow);
+        stack.Controls.Add(_updateLabel);
+        stack.Controls.Add(buttons);
+        stack.Controls.Add(_checkUpdates);
+        group.Controls.Add(stack);
 
         _checkUpdates.CheckedChanged += (_, _) => SaveIfNotLoading(() => Settings.CheckForUpdates = _checkUpdates.Checked);
         _checkUpdatesButton.Click += async (_, _) =>
@@ -795,7 +779,7 @@ public sealed class MainForm : Form
             else if (kind == FrontendKind.Custom)
             {
                 _frontendPath.Text = Settings.CustomFrontendPath ?? "";
-                _frontendPath.PlaceholderText = "Ruta del .exe (LaunchBox Big Box, EmulationStation, tu launcher…)";
+                _frontendPath.PlaceholderText = "Ruta del .exe (Big Box, EmulationStation, tu launcher…)";
                 _frontendArgs.Text = Settings.CustomFrontendArgs ?? "";
             }
         }
@@ -1000,6 +984,111 @@ public sealed class MainForm : Form
         base.OnFormClosing(e);
     }
 
+    /// <summary>
+    /// The immersive console mode was switched somewhere else (the gamepad overlay): shows it without saving it again.
+    /// </summary>
+    public void ShowImmersiveState(bool enabled)
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+        var wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            _immersive.Checked = enabled;
+            _immersiveAllowedLabel.Enabled = _immersiveAllowed.Enabled = enabled;
+        }
+        finally
+        {
+            _loading = wasLoading;
+        }
+    }
+
+    // =====================================================================================
+    // Escalado (DPI)
+    // =====================================================================================
+
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        ApplyDpiState();
+    }
+
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        // WinForms rescales the form font and the layout inside base.OnDpiChanged; what it does not rescale is set
+        // again once it has finished.
+        BeginInvoke(new Action(ApplyDpiState));
+    }
+
+    /// <summary>Fonts and sizes that depend on the current scale. Idempotent: everything is computed from scratch.</summary>
+    private void ApplyDpiState()
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+        ApplyDerivedFonts();
+        MinimumSize = LogicalToDeviceUnits(LogicalMinimumSize);
+        _tabs.Padding = new Point(LogicalToDeviceUnits(12), LogicalToDeviceUnits(6));
+        FitDeviceColumns();
+    }
+
+    /// <summary>Larger and bold fonts, derived from the form font so they keep the proportion at every scale.</summary>
+    private void ApplyDerivedFonts()
+    {
+        var size = Font.SizeInPoints;
+        var large = new Font(SemiboldFamily, size * LargeFontFactor);
+        var semibold = new Font(SemiboldFamily, size);
+        var bold = new Font(Font, FontStyle.Bold);
+
+        _modeLabel.Font = large;
+        _pcButton.Font = large;
+        _consoleButton.Font = large;
+        foreach (var heading in _headings)
+        {
+            heading.Font = semibold;
+        }
+        foreach (var marker in _helpMarkers)
+        {
+            marker.Font = bold;
+        }
+        _addressLabel.Font = bold;
+
+        _largeFont?.Dispose();
+        _semiboldFont?.Dispose();
+        _boldFont?.Dispose();
+        (_largeFont, _semiboldFont, _boldFont) = (large, semibold, bold);
+    }
+
+    /// <summary>Column widths of the device list as a share of its width, so no column is cut at any scale.</summary>
+    private void FitDeviceColumns()
+    {
+        var width = _devices.ClientSize.Width;
+        if (_devices.Columns.Count < 3 || width <= 0)
+        {
+            return;
+        }
+        _devices.Columns[0].Width = width * 46 / 100;
+        _devices.Columns[1].Width = width * 27 / 100;
+        _devices.Columns[2].Width = width - _devices.Columns[0].Width - _devices.Columns[1].Width;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+        {
+            _help.Dispose();
+            _largeFont?.Dispose();
+            _semiboldFont?.Dispose();
+            _boldFont?.Dispose();
+        }
+    }
+
     // =====================================================================================
     // Helpers de UI
     // =====================================================================================
@@ -1021,9 +1110,9 @@ public sealed class MainForm : Form
     {
         Text = text,
         Dock = DockStyle.Fill,
-        Height = 64,
+        AutoSize = true,
         FlatStyle = FlatStyle.Flat,
-        Font = new Font("Segoe UI Semibold", 13f),
+        Padding = new Padding(8, 14, 8, 14),
         Margin = new Padding(4),
         Cursor = Cursors.Hand,
     };
@@ -1040,10 +1129,40 @@ public sealed class MainForm : Form
     private static GroupBox NewGroup(string title) => new()
     {
         Text = title,
-        Dock = DockStyle.Top,
+        Dock = DockStyle.Fill,
         AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
         Padding = new Padding(10, 6, 10, 8),
         Margin = new Padding(0, 0, 0, 10),
+    };
+
+    private static TabPage NewPage(string title) => new(title) { Padding = new Padding(10), AutoScroll = true };
+
+    /// <summary>
+    /// Vertical stack as wide as its container. Unlike a top-down FlowLayoutPanel, its children can stretch to that
+    /// width, so their texts wrap instead of being cut or adding a horizontal scroll bar.
+    /// </summary>
+    private static TableLayoutPanel NewStack(DockStyle dock = DockStyle.Top)
+    {
+        var stack = new TableLayoutPanel
+        {
+            Dock = dock,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 1,
+            Margin = Padding.Empty,
+        };
+        stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        return stack;
+    }
+
+    /// <summary>Row of buttons that moves the ones that do not fit to the next line.</summary>
+    private static FlowLayoutPanel NewButtonRow() => new()
+    {
+        AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        WrapContents = true,
+        Margin = Padding.Empty,
     };
 
     private static TableLayoutPanel NewGrid()
@@ -1054,9 +1173,69 @@ public sealed class MainForm : Form
         return grid;
     }
 
-    private static void AddRow(TableLayoutPanel grid, string label, Control control)
+    private void AddRow(TableLayoutPanel grid, string label, Control control, string? help = null)
     {
-        grid.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 6, 8, 6) });
+        var caption = new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 6, 8, 6) };
+        if (help == null)
+        {
+            grid.Controls.Add(caption);
+        }
+        else
+        {
+            caption.Margin = new Padding(3, 6, 2, 6);
+            var captionWithHelp = AddHelp(caption, help);
+            captionWithHelp.Margin = new Padding(0, 0, 6, 0);
+            grid.Controls.Add(captionWithHelp);
+            _help.SetToolTip(control, UiText.WrapForTooltip(help));
+        }
         grid.Controls.Add(control);
+    }
+
+    private static void AddSpanning(TableLayoutPanel grid, Control control)
+    {
+        grid.Controls.Add(control);
+        grid.SetColumnSpan(control, grid.ColumnCount);
+    }
+
+    /// <summary>
+    /// Puts <paramref name="target"/> next to a «?» marker that shows <paramref name="help"/> as a tooltip (also when
+    /// clicked) and returns both in a row to add to the layout instead of the target.
+    /// </summary>
+    private Control AddHelp(Control target, string help)
+    {
+        var text = UiText.WrapForTooltip(help);
+        _help.SetToolTip(target, text);
+        target.AccessibleDescription = help;
+        target.Anchor = AnchorStyles.Left;
+
+        var marker = new Label
+        {
+            Text = "?",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            ForeColor = Accent,
+            Cursor = Cursors.Help,
+            Margin = new Padding(0, 0, 3, 0),
+            AccessibleName = "Ayuda",
+            AccessibleDescription = help,
+        };
+        _help.SetToolTip(marker, text);
+        marker.Click += (_, _) => _help.Show(text, marker, 0, marker.Height, 15000);
+        _helpMarkers.Add(marker);
+
+        var row = new TableLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 2,
+            RowCount = 1,
+            Anchor = AnchorStyles.Left,
+            Margin = Padding.Empty,
+        };
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        row.Controls.Add(target, 0, 0);
+        row.Controls.Add(marker, 1, 0);
+        return row;
     }
 }
