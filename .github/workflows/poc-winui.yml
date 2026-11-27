@@ -26,23 +26,21 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Publish single-file portable exe
-        run: >
-          dotnet publish poc/WinUiPoc/WinUiPoc.csproj -c Release -r win-x64 --self-contained true
-          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
-          -o poc-publish
+      - name: Publish (folder and single-file)
+        run: |
+          dotnet publish poc/WinUiPoc/WinUiPoc.csproj -c Release -r win-x64 --self-contained true -o poc-folder
+          dotnet publish poc/WinUiPoc/WinUiPoc.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o poc-single
 
-      - name: Output files and sizes
-        shell: pwsh
-        run: Get-ChildItem poc-publish | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}} | Format-Table -AutoSize
-
-      - name: Run and inspect windows
+      - name: Output sizes
         shell: pwsh
         run: |
-          $log = Join-Path $env:TEMP 'winuipoc.log'
-          Remove-Item $log -ErrorAction SilentlyContinue
-          $p = Start-Process -FilePath (Resolve-Path poc-publish\WinUiPoc.exe) -PassThru
-          Start-Sleep -Seconds 25
+          "Folder publish: $([math]::Round((Get-ChildItem poc-folder -Recurse | Measure-Object Length -Sum).Sum/1MB,1)) MB in $((Get-ChildItem poc-folder -Recurse -File).Count) files"
+          "Single-file publish:"
+          Get-ChildItem poc-single | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}} | Format-Table -AutoSize | Out-String
+
+      - name: Run both builds and inspect
+        shell: pwsh
+        run: |
           Add-Type -TypeDefinition @'
           using System; using System.Collections.Generic; using System.Runtime.InteropServices; using System.Text;
           public static class W {
@@ -60,21 +58,36 @@ jobs:
             }
           }
           '@
-          "Process alive: $(-not $p.HasExited)"
-          "Visible windows: $([W]::Of([uint32]$p.Id) -join ' | ')"
-          "Working set MB: $([math]::Round((Get-Process -Id $p.Id).WorkingSet64/1MB,1))"
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
-          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
           New-Item -ItemType Directory -Force poc-out | Out-Null
-          $bmp.Save('poc-out\screen.png')
-          "--- PoC log ---"
-          Get-Content $log -ErrorAction SilentlyContinue
-          Copy-Item $log poc-out -ErrorAction SilentlyContinue
-          Stop-Process -Id $p.Id -ErrorAction SilentlyContinue
+          $log = Join-Path $env:TEMP 'winuipoc.log'
+          foreach ($kind in 'folder', 'single') {
+            "===== $kind ====="
+            Remove-Item $log -ErrorAction SilentlyContinue
+            $since = Get-Date
+            $p = Start-Process -FilePath (Resolve-Path "poc-$kind\WinUiPoc.exe") -PassThru
+            Start-Sleep -Seconds 20
+            if ($p.HasExited) {
+              "Process exited with code $($p.ExitCode) (0x$('{0:X8}' -f $p.ExitCode))"
+            } else {
+              "Process alive. Visible windows: $([W]::Of([uint32]$p.Id) -join ' | ')"
+              "Working set MB: $([math]::Round((Get-Process -Id $p.Id).WorkingSet64/1MB,1))"
+              $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+              $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+              [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+              $bmp.Save("poc-out\screen-$kind.png")
+              Stop-Process -Id $p.Id -ErrorAction SilentlyContinue
+            }
+            "--- PoC log ---"
+            Get-Content $log -ErrorAction SilentlyContinue
+            if (Test-Path $log) { Copy-Item $log "poc-out\log-$kind.txt" }
+            "--- Application event log ---"
+            Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = $since } -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProviderName -in '.NET Runtime', 'Application Error', 'Windows Error Reporting' } |
+              ForEach-Object { "[$($_.ProviderName)] $($_.Message)" } | Select-Object -First 4
+          }
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: poc-winui
