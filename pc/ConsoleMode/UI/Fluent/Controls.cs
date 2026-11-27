@@ -1,7 +1,10 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using ConsoleMode.Core;
+using Wpf.Ui.Appearance;
+using Image = System.Windows.Controls.Image;
 using Brushes = System.Windows.Media.Brushes;
 using FontFamily = System.Windows.Media.FontFamily;
 using HorizontalAlignment = System.Windows.HorizontalAlignment;
@@ -73,9 +76,14 @@ public sealed class IconChip : Border
     }
 }
 
-/// <summary>One gamepad button drawn with the icons of the chosen console.</summary>
+/// <summary>
+/// One gamepad button drawn with the chosen console's icon (Kenney «Input Prompts»), in the variant for the window
+/// theme. If an icon is missing, the button is drawn with its label instead.
+/// </summary>
 public sealed class ButtonGlyphView : Border
 {
+    private const double IconSize = 30;
+
     public static readonly DependencyProperty ButtonProperty = DependencyProperty.Register(
         nameof(Button), typeof(GamepadButtons), typeof(ButtonGlyphView),
         new PropertyMetadata(GamepadButtons.A, (d, _) => ((ButtonGlyphView)d).Update()));
@@ -84,6 +92,14 @@ public sealed class ButtonGlyphView : Border
         nameof(Family), typeof(ButtonIconFamily), typeof(ButtonGlyphView),
         new PropertyMetadata(ButtonIconFamily.Xbox, (d, _) => ((ButtonGlyphView)d).Update()));
 
+    /// <summary>True when drawn on a dark surface whatever the theme (the overlay preview); null follows the theme.</summary>
+    public static readonly DependencyProperty DarkBackgroundProperty = DependencyProperty.Register(
+        nameof(DarkBackground), typeof(bool?), typeof(ButtonGlyphView),
+        new PropertyMetadata(null, (d, _) => ((ButtonGlyphView)d).Update()));
+
+    private static readonly Dictionary<string, BitmapImage?> Icons = new();
+
+    private readonly Image _icon = new() { Width = IconSize, Height = IconSize, Stretch = Stretch.Uniform };
     private readonly TextBlock _label = new()
     {
         FontWeight = FontWeights.Bold,
@@ -94,9 +110,10 @@ public sealed class ButtonGlyphView : Border
 
     public ButtonGlyphView()
     {
-        Height = 28;
         VerticalAlignment = VerticalAlignment.Center;
-        Child = _label;
+        RenderOptions.SetBitmapScalingMode(_icon, BitmapScalingMode.HighQuality);
+        Loaded += (_, _) => ApplicationThemeManager.Changed += OnThemeChanged;
+        Unloaded += (_, _) => ApplicationThemeManager.Changed -= OnThemeChanged;
         Update();
     }
 
@@ -112,16 +129,39 @@ public sealed class ButtonGlyphView : Border
         set => SetValue(FamilyProperty, value);
     }
 
+    public bool? DarkBackground
+    {
+        get => (bool?)GetValue(DarkBackgroundProperty);
+        set => SetValue(DarkBackgroundProperty, value);
+    }
+
+    private void OnThemeChanged(ApplicationTheme theme, WpfColor accent) => Update();
+
     private void Update()
     {
         var glyph = ButtonGlyphs.For(Family, Button);
-        var icon = IconFor(Family, Button);
-        _label.Text = icon ?? glyph.Text;
-        _label.FontFamily = icon != null ? Glyphs.IconFont : glyph.UsesSymbolFont ? Glyphs.SymbolFont : Glyphs.TextFont;
-        _label.FontSize = icon != null ? 13 : glyph.UsesSymbolFont ? 14 : 12;
-        _label.Foreground = Glyphs.Brush(glyph.Foreground);
-        Background = Glyphs.Brush(glyph.Fill);
         ToolTip = glyph.Text;
+        var dark = DarkBackground ?? ApplicationThemeManager.GetAppTheme() == ApplicationTheme.Dark;
+        if (LoadIcon(ButtonIcons.ResourceName(Family, Button, dark)) is { } image)
+        {
+            _icon.Source = image;
+            Child = _icon;
+            Background = Brushes.Transparent;
+            Width = IconSize;
+            Height = IconSize;
+            MinWidth = 0;
+            Padding = new Thickness(0);
+            CornerRadius = new CornerRadius(0);
+            return;
+        }
+
+        _label.Text = glyph.Text;
+        _label.FontFamily = glyph.UsesSymbolFont ? Glyphs.SymbolFont : Glyphs.TextFont;
+        _label.FontSize = glyph.UsesSymbolFont ? 14 : 12;
+        _label.Foreground = Glyphs.Brush(glyph.Foreground);
+        Child = _label;
+        Background = Glyphs.Brush(glyph.Fill);
+        Height = 28;
         if (glyph.Shape == GlyphShape.Circle)
         {
             Width = 28;
@@ -138,18 +178,33 @@ public sealed class ButtonGlyphView : Border
         }
     }
 
-    /// <summary>
-    /// The window draws the Xbox View and Menu buttons, and PlayStation's Create and Options, with their icons instead
-    /// of their names; there is enough room for words only in the overlay.
-    /// </summary>
-    private static string? IconFor(ButtonIconFamily family, GamepadButtons button) => (family, button) switch
+    /// <summary>The embedded icon, loaded once; null if it is missing.</summary>
+    private static BitmapImage? LoadIcon(string resourceName)
     {
-        (ButtonIconFamily.Xbox, GamepadButtons.View) => "\uE8C8",
-        (ButtonIconFamily.Xbox, GamepadButtons.Menu) => "\uE700",
-        (ButtonIconFamily.PlayStation, GamepadButtons.View) => "\uE72D",
-        (ButtonIconFamily.PlayStation, GamepadButtons.Menu) => "\uE700",
-        _ => null,
-    };
+        if (Icons.TryGetValue(resourceName, out var cached))
+        {
+            return cached;
+        }
+        BitmapImage? image = null;
+        using (var stream = typeof(ButtonGlyphView).Assembly.GetManifestResourceStream(resourceName))
+        {
+            if (stream != null)
+            {
+                image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.StreamSource = stream;
+                image.EndInit();
+                image.Freeze();
+            }
+            else
+            {
+                Log.Error($"Button icon not found: {resourceName}");
+            }
+        }
+        Icons[resourceName] = image;
+        return image;
+    }
 }
 
 /// <summary>A button combination drawn as glyphs joined by «+».</summary>
@@ -238,7 +293,7 @@ public sealed class OverlayHintPreview : Border
 
     private void Add(GamepadButtons button, string text, Thickness margin)
     {
-        _row.Children.Add(new ButtonGlyphView { Button = button, Family = Family });
+        _row.Children.Add(new ButtonGlyphView { Button = button, Family = Family, DarkBackground = true });
         _row.Children.Add(new TextBlock
         {
             Text = text,

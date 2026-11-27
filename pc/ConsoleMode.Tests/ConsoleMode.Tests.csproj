@@ -17,6 +17,7 @@
   <ItemGroup>
     <Compile Include="..\ConsoleMode\Core\AppSettings.cs" Link="App\AppSettings.cs" />
     <Compile Include="..\ConsoleMode\Core\ButtonGlyphs.cs" Link="App\ButtonGlyphs.cs" />
+    <Compile Include="..\ConsoleMode\Core\ButtonIcons.cs" Link="App\ButtonIcons.cs" />
     <Compile Include="..\ConsoleMode\Core\ComboCapture.cs" Link="App\ComboCapture.cs" />
     <Compile Include="..\ConsoleMode\Core\ControllerBattery.cs" Link="App\ControllerBattery.cs" />
     <Compile Include="..\ConsoleMode\Core\DeviceOptions.cs" Link="App\DeviceOptions.cs" />

@@ -1,0 +1,7 @@
+Button icons: «Input Prompts» by Kenney (www.kenney.nl)
+Xbox Series, PlayStation Series and Nintendo Switch sets.
+License: Creative Commons Zero, CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)
+
+The «*.light.png» files are the same icons with their white parts darkened so that they can be seen on light
+backgrounds; the «*.dark.png» files are the original ones. Each file is named after the XInput button whose physical
+position it shows (for example Nintendo.A is Nintendo's «B» button, the bottom one).

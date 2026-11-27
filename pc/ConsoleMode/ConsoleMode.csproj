@@ -22,6 +22,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Assets\app.ico" LogicalName="ConsoleMode.app.ico" />
+    <!-- Button icons (Kenney «Input Prompts», CC0): ConsoleMode.ButtonIcons.<Family>.<Button>.<dark|light>.png -->
+    <EmbeddedResource Include="Assets\ButtonIcons\*.png" LogicalName="ConsoleMode.ButtonIcons.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>
