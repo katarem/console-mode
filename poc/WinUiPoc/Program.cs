@@ -30,7 +30,7 @@ public static class Program
                 {
                     _winUiQueue = DispatcherQueue.GetForCurrentThread();
                     SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(_winUiQueue));
-                    _ = new App();
+                    new App();
                 });
                 PocLog.Write("WinUI Application.Start returned");
             }
