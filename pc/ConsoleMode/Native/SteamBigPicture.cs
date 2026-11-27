@@ -11,8 +11,7 @@ public static class SteamBigPicture
 {
     public static void Open()
     {
-        Log.Info("Abriendo Steam Big Picture");
-        Process.Start(new ProcessStartInfo("steam://open/bigpicture") { UseShellExecute = true });
+        ShellLauncher.Open("Steam Big Picture", "steam://open/bigpicture", "", "");
     }
 
     public static async Task CloseAsync()
