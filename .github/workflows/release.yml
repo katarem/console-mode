@@ -84,6 +84,9 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Tests de la app de PC
+        run: dotnet test pc/ConsoleMode.Tests/ConsoleMode.Tests.csproj -c Release
+
       - name: Publicar ConsoleMode.exe
         run: >
           dotnet publish pc/ConsoleMode/ConsoleMode.csproj -c Release -r win-x64
