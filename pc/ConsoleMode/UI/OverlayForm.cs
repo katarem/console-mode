@@ -7,8 +7,9 @@ namespace ConsoleMode.UI;
 
 /// <summary>
 /// Overlay para el mando en la esquina inferior derecha: cambia de modo, de salida de audio, de micrófono, de salida de
-/// comunicaciones y de pantalla principal, y ajusta o silencia el sonido y el micrófono. Los cambios son temporales: no
-/// se guardan en los perfiles de los modos.
+/// comunicaciones y de pantalla principal, ajusta o silencia el sonido y el micrófono, activa o desactiva el modo
+/// inmersivo y suspende, reinicia o apaga el PC. La cabecera muestra la hora y la batería del mando que lo ha abierto.
+/// Los cambios de audio y pantalla son temporales: no se guardan en los perfiles de los modos.
 /// </summary>
 /// <remarks>
 /// Cada opción muestra solo lo elegido ahora; al pulsar A, el overlay pasa al centro de la pantalla con la lista de
@@ -38,6 +39,7 @@ public sealed class OverlayForm : Form
     private static readonly Color MutedOnColor = Color.FromArgb(239, 68, 68);
     private static readonly Color MutedOffColor = Color.FromArgb(52, 52, 68);
     private static readonly Color CloseGameColor = Color.FromArgb(220, 38, 38);
+    private static readonly Color SleepColor = Color.FromArgb(99, 102, 241);
 
     // Iconos de Segoe Fluent Icons (Windows 11) o Segoe MDL2 Assets (Windows 10): mismos códigos en las dos.
     private const string GlyphVolume = "\uE767";
@@ -52,8 +54,17 @@ public sealed class OverlayForm : Form
     private const string GlyphClose = "\uE711";
     private const string GlyphPlay = "\uE768";
     private const string GlyphBack = "\uE72B";
+    private const string GlyphSleep = "\uE708";
+    private const string GlyphRestart = "\uE777";
+    private const string GlyphPower = "\uE7E8";
+    private const string GlyphImmersive = "\uE740";
 
     private static readonly TimeSpan IdleClose = TimeSpan.FromSeconds(20);
+    // The battery level changes slowly: it is read again every 30 ticks of the 1 s timer.
+    private const int BatteryRefreshTicks = 30;
+    // If Windows has not restarted or shut down by then (an app asking to save, for instance), the overlay gives control
+    // back instead of staying stuck on «Apagando…».
+    private static readonly TimeSpan PowerActionTimeout = TimeSpan.FromSeconds(15);
     private const int VolumeStep = 5;
 
     // PreserveGraphicsClipping: sin él, TextRenderer ignora el recorte del Graphics y el texto de las filas que
@@ -73,7 +84,21 @@ public sealed class OverlayForm : Form
         MuteToggles,
         Picker,
         Volume,
+        ImmersiveToggle,
+        PowerActions,
     }
+
+    /// <summary>What the centered «Sí / No» dialog asks for.</summary>
+    private enum ConfirmKind
+    {
+        CloseGame,
+        Sleep,
+        Restart,
+        Shutdown,
+    }
+
+    /// <summary>Buttons of the power row, left to right.</summary>
+    private static readonly ConfirmKind[] PowerActions = { ConfirmKind.Sleep, ConfirmKind.Restart, ConfirmKind.Shutdown };
 
     private enum PickerKind
     {
@@ -109,8 +134,9 @@ public sealed class OverlayForm : Form
     private readonly IntPtr _returnTarget;
     private bool _returnRequested;
 
-    // Diálogo «¿Cerrar el juego?» en el centro de la pantalla: sus dos opciones y la elegida (empieza en «No»).
-    private bool _confirmClose;
+    // Diálogo de confirmación en el centro de la pantalla («¿Cerrar el juego?», «¿Apagar el PC?»...): qué pregunta
+    // (null si no está abierto), sus dos opciones y la elegida (empieza en «No»).
+    private ConfirmKind? _confirm;
     private readonly List<Row> _confirmRows = new();
     private int _confirmSelected;
     private bool _gameClosed;
@@ -146,9 +172,21 @@ public sealed class OverlayForm : Form
     private long _dataDoneAt;
     private long _layoutDoneAt;
 
-    // Vista principal: fila elegida y, en la fila de silenciar, cuál de los dos botones (0 = sonido, 1 = micrófono).
+    // Vista principal: fila elegida, en la fila de silenciar cuál de los dos botones (0 = sonido, 1 = micrófono) y en la
+    // de energía cuál de los tres (índice de PowerActions).
     private int _selected;
     private int _toggleIndex;
+    private int _powerIndex;
+
+    // Cabecera: batería del mando que ha abierto el overlay (null si se ha abierto de otra forma o no se sabe) y hora.
+    private readonly int? _controllerIndex;
+    private ControllerBattery? _battery;
+    private int _ticks;
+    private string _clockText = CurrentTime();
+
+    // Modo inmersivo: se lee y se cambia a través de la app (null en la precarga: sin fila).
+    private readonly Func<bool>? _immersiveEnabled;
+    private readonly Action<bool>? _setImmersive;
 
     // Vista de lista (en el centro de la pantalla): qué se elige, opciones y opción marcada.
     private PickerKind? _picker;
@@ -171,8 +209,15 @@ public sealed class OverlayForm : Form
     /// Juego en pantalla completa exclusiva que se ha minimizado para poder enseñar el overlay: es la ventana «de antes»
     /// y, al cerrar el overlay, se restaura (salvo que se haya cerrado el juego).
     /// </param>
-    public OverlayForm(Icon icon, ModeSwitcher switcher, Func<bool> inputHeld, IntPtr minimizedGame = default)
+    /// <param name="controllerIndex">Índice XInput del mando que ha abierto el overlay, para mostrar su batería.</param>
+    /// <param name="immersiveEnabled">Si el modo consola inmersivo está activado.</param>
+    /// <param name="setImmersive">Activa o desactiva el modo consola inmersivo (y lo guarda).</param>
+    public OverlayForm(Icon icon, ModeSwitcher switcher, Func<bool> inputHeld, IntPtr minimizedGame = default,
+        int? controllerIndex = null, Func<bool>? immersiveEnabled = null, Action<bool>? setImmersive = null)
     {
+        _controllerIndex = controllerIndex;
+        _immersiveEnabled = immersiveEnabled;
+        _setImmersive = setImmersive;
         _minimizedGame = minimizedGame;
         _previousForeground = minimizedGame != IntPtr.Zero ? minimizedGame : WindowFocus.Foreground;
         _previousProcess = WindowFocus.ProcessNameOf(_previousForeground);
@@ -205,7 +250,7 @@ public sealed class OverlayForm : Form
         _idleTimer.Tick += (_, _) => CloseWhenReleased();
         _releaseTimer.Tick += (_, _) => CheckReleased();
         _focusTimer.Tick += (_, _) => EnsureFocus();
-        _volumeTimer.Tick += (_, _) => RefreshVolumes();
+        _volumeTimer.Tick += (_, _) => OnTick();
 
         // Devices come from QuickSwitch's cache: asking Windows for them here took hundreds of milliseconds.
         CopySnapshot(QuickSwitch.Snapshot);
@@ -256,7 +301,7 @@ public sealed class OverlayForm : Form
         _idleTimer.Stop();
         _idleTimer.Start();
 
-        if (_confirmClose)
+        if (Confirming)
         {
             switch (action)
             {
@@ -269,7 +314,7 @@ public sealed class OverlayForm : Form
                     SelectConfirm(_confirmSelected + 1);
                     break;
                 case PadAction.Accept:
-                    AnswerCloseConfirm();
+                    AnswerConfirm();
                     break;
                 case PadAction.Back:
                     CloseConfirm();
@@ -349,6 +394,7 @@ public sealed class OverlayForm : Form
                  $"place+focus {openedAt - showStartedAt} ms, cache {(_appliedSnapshot != null ? "ready" : "loading")}");
         _idleTimer.Start();
         _volumeTimer.Start();
+        _ = RefreshBatteryAsync();
 
         // A read that finished since the constructor, and a fresh one (volumes, retry of a list that failed).
         ApplyLatestSnapshot();
@@ -426,7 +472,7 @@ public sealed class OverlayForm : Form
             return;
         }
 
-        if (_confirmClose)
+        if (Confirming)
         {
             SelectConfirm(index);
             HandleAction(PadAction.Accept);
@@ -445,6 +491,10 @@ public sealed class OverlayForm : Form
         if (row.Kind == RowKind.MuteToggles)
         {
             _toggleIndex = e.X < bounds.Left + bounds.Width / 2 ? 0 : 1;
+        }
+        else if (row.Kind == RowKind.PowerActions)
+        {
+            _powerIndex = Math.Clamp((e.X - bounds.Left) * PowerActions.Length / Math.Max(1, bounds.Width), 0, PowerActions.Length - 1);
         }
         else if (row.Kind == RowKind.Volume && VolumeTrack(bounds) is { } track && e.X >= track.Left - Px(8))
         {
@@ -592,6 +642,15 @@ public sealed class OverlayForm : Form
         }
         _rows.Add(new Row(RowKind.Picker, "display", "Pantalla principal", Current(_displays), GlyphDisplay, DisplayColor,
             PickerKind.Display));
+        if (state.Mode == AppMode.Console && !state.Busy && _immersiveEnabled != null && _setImmersive != null)
+        {
+            var immersive = _immersiveEnabled();
+            _rows.Add(new Row(RowKind.ImmersiveToggle, "immersive", "Modo inmersivo",
+                immersive ? "Activado: solo se ven el frontal y los juegos" : "Desactivado: se ven todas las ventanas",
+                GlyphImmersive, immersive ? ConsoleColor : MutedOffColor));
+        }
+        // Al final, lejos de la fila con la que se empieza: siempre pide confirmación, pero mejor no tenerla a mano.
+        _rows.Add(new Row(RowKind.PowerActions, "power", "", "", GlyphPower, CloseGameColor));
 
         var index = _rows.FindIndex(r => r.Key == selectedKey);
         if (index < 0)
@@ -613,7 +672,7 @@ public sealed class OverlayForm : Form
     /// </summary>
     public void ApplyLatestSnapshot()
     {
-        if (IsDisposed || _picker != null || _confirmClose || _busy || _closing)
+        if (IsDisposed || _picker != null || Confirming || _busy || _closing)
         {
             return;
         }
@@ -642,7 +701,7 @@ public sealed class OverlayForm : Form
     /// <summary>El volumen también se puede cambiar con el teclado o desde Windows: se vuelve a leer cada segundo.</summary>
     private void RefreshVolumes()
     {
-        if (_picker != null || _confirmClose || _busy || _closing)
+        if (_picker != null || Confirming || _busy || _closing)
         {
             return;
         }
@@ -654,6 +713,40 @@ public sealed class OverlayForm : Form
             _inVolume = inVolume ?? _inVolume;
             Invalidate();
         }
+    }
+
+    /// <summary>Cada segundo: la hora, la batería del mando (cada BatteryRefreshTicks) y el volumen.</summary>
+    private void OnTick()
+    {
+        var clock = CurrentTime();
+        if (clock != _clockText)
+        {
+            _clockText = clock;
+            Invalidate(_subtitleRect);
+        }
+        if (++_ticks % BatteryRefreshTicks == 0)
+        {
+            _ = RefreshBatteryAsync();
+        }
+        RefreshVolumes();
+    }
+
+    private static string CurrentTime() => DateTime.Now.ToString("t", System.Globalization.CultureInfo.CurrentCulture);
+
+    /// <summary>Lee la batería del mando fuera del hilo de la interfaz (XInput puede tardar con mandos inalámbricos).</summary>
+    private async Task RefreshBatteryAsync()
+    {
+        if (_controllerIndex is not { } index)
+        {
+            return;
+        }
+        var battery = await Task.Run(() => GamepadWatcher.ReadBattery(index));
+        if (IsDisposed || battery == _battery)
+        {
+            return;
+        }
+        _battery = battery;
+        Invalidate();
     }
 
     private void SelectRow(int index)
@@ -684,10 +777,12 @@ public sealed class OverlayForm : Form
         Invalidate();
     }
 
-    private int SelectedItem => _confirmClose ? _confirmSelected : _picker != null ? _optionSelected : _selected;
+    private bool Confirming => _confirm != null;
+
+    private int SelectedItem => Confirming ? _confirmSelected : _picker != null ? _optionSelected : _selected;
 
     /// <summary>El diálogo de confirmación y las listas van en el centro de la pantalla; la vista principal, en la esquina.</summary>
-    private bool Centered => _picker != null || _confirmClose;
+    private bool Centered => _picker != null || Confirming;
 
     /// <summary>Desplaza la lista para que el elemento elegido se vea.</summary>
     private void ScrollToSelected()
@@ -740,6 +835,11 @@ public sealed class OverlayForm : Form
         if (row.Kind == RowKind.MuteToggles)
         {
             _toggleIndex = Math.Clamp(_toggleIndex + direction, 0, 1);
+            Invalidate();
+        }
+        else if (row.Kind == RowKind.PowerActions)
+        {
+            _powerIndex = Math.Clamp(_powerIndex + direction, 0, PowerActions.Length - 1);
             Invalidate();
         }
         else if (row.Kind == RowKind.Volume && VolumeOf(row.Flow) is { } volume)
@@ -822,10 +922,16 @@ public sealed class OverlayForm : Form
                 OpenPicker(row.Picker);
                 return;
             case RowKind.CloseGame:
-                OpenCloseConfirm();
+                OpenConfirm(ConfirmKind.CloseGame);
                 return;
             case RowKind.ReturnToGame:
                 ReturnToGame();
+                return;
+            case RowKind.ImmersiveToggle:
+                ToggleImmersive();
+                return;
+            case RowKind.PowerActions:
+                OpenConfirm(PowerActions[_powerIndex]);
                 return;
         }
 
@@ -873,20 +979,31 @@ public sealed class OverlayForm : Form
         CloseWhenReleased();
     }
 
-    /// <summary>Pregunta en el centro de la pantalla si se cierra (o se fuerza el cierre de) el juego.</summary>
-    private void OpenCloseConfirm()
+    /// <summary>
+    /// Pregunta en el centro de la pantalla si se cierra (o se fuerza el cierre de) el juego, o si se suspende, reinicia o
+    /// apaga el PC.
+    /// </summary>
+    private void OpenConfirm(ConfirmKind kind)
     {
-        if (_game == null)
+        if (kind == ConfirmKind.CloseGame && _game == null)
         {
             return;
         }
+        var (_, _, glyph, color) = ConfirmInfo(kind);
         _confirmRows.Clear();
-        _confirmRows.Add(_offerForceClose
-            ? new Row(RowKind.CloseGame, "confirm-yes", "Sí, forzar el cierre", "Se termina al momento", GlyphClose, CloseGameColor)
-            : new Row(RowKind.CloseGame, "confirm-yes", "Sí, cerrar el juego", "Como Alt+F4", GlyphClose, CloseGameColor));
-        _confirmRows.Add(new Row(RowKind.SwitchMode, "confirm-no", "No, seguir jugando", "Vuelve al overlay", GlyphBack, MutedOffColor));
-        _confirmSelected = 1; // «No»: un A de más no cierra el juego
-        _confirmClose = true;
+        _confirmRows.Add(kind switch
+        {
+            ConfirmKind.CloseGame when _offerForceClose =>
+                new Row(RowKind.CloseGame, "confirm-yes", "Sí, forzar el cierre", "Se termina al momento", glyph, color),
+            ConfirmKind.CloseGame => new Row(RowKind.CloseGame, "confirm-yes", "Sí, cerrar el juego", "Como Alt+F4", glyph, color),
+            ConfirmKind.Sleep => new Row(RowKind.CloseGame, "confirm-yes", "Sí, suspender", "El PC se queda en reposo", glyph, color),
+            ConfirmKind.Restart => new Row(RowKind.CloseGame, "confirm-yes", "Sí, reiniciar", "Se reinicia al momento", glyph, color),
+            _ => new Row(RowKind.CloseGame, "confirm-yes", "Sí, apagar", "Se apaga al momento", glyph, color),
+        });
+        _confirmRows.Add(new Row(RowKind.SwitchMode, "confirm-no",
+            kind == ConfirmKind.CloseGame ? "No, seguir jugando" : "No, volver", "Vuelve al overlay", GlyphBack, MutedOffColor));
+        _confirmSelected = 1; // «No»: un A de más no cierra el juego ni apaga el PC
+        _confirm = kind;
         _scroll = 0;
         _status = "";
         Relayout();
@@ -895,7 +1012,7 @@ public sealed class OverlayForm : Form
 
     private void CloseConfirm()
     {
-        _confirmClose = false;
+        _confirm = null;
         _scroll = 0;
         CopyLatestSnapshot();
         Relayout();
@@ -903,13 +1020,98 @@ public sealed class OverlayForm : Form
         GrabFocus();
     }
 
-    private void AnswerCloseConfirm()
+    private void AnswerConfirm()
     {
+        var kind = _confirm;
         var yes = _confirmSelected == 0;
         CloseConfirm();
-        if (yes)
+        if (!yes || kind == null)
+        {
+            return;
+        }
+        if (kind == ConfirmKind.CloseGame)
         {
             _ = CloseGameAsync();
+        }
+        else
+        {
+            _ = RunPowerActionAsync(kind.Value);
+        }
+    }
+
+    /// <summary>Suspende, reinicia o apaga el PC (ya confirmado).</summary>
+    private async Task RunPowerActionAsync(ConfirmKind kind)
+    {
+        Log.Info($"Overlay: {kind}");
+        _busy = true;
+        _idleTimer.Stop();
+        SetStatus(kind switch
+        {
+            ConfirmKind.Sleep => "Suspendiendo el PC…",
+            ConfirmKind.Restart => "Reiniciando el PC…",
+            _ => "Apagando el PC…",
+        });
+        Action action = kind switch
+        {
+            ConfirmKind.Sleep => PowerControl.Sleep,
+            ConfirmKind.Restart => PowerControl.Restart,
+            _ => PowerControl.Shutdown,
+        };
+        try
+        {
+            // Suspender no vuelve hasta que el PC se despierta.
+            await Task.Run(action);
+            if (kind != ConfirmKind.Sleep)
+            {
+                await Task.Delay(PowerActionTimeout);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Overlay: no se pudo suspender, reiniciar o apagar el PC", ex);
+            _busy = false;
+            if (!IsDisposed)
+            {
+                SetStatus(ex.Message, error: true);
+                _idleTimer.Start();
+            }
+            return;
+        }
+
+        _busy = false;
+        if (IsDisposed)
+        {
+            return;
+        }
+        if (kind == ConfirmKind.Sleep)
+        {
+            // El PC se ha despertado: el overlay ya no hace falta.
+            CloseWhenReleased();
+            return;
+        }
+        SetStatus("Windows aún no lo ha hecho: puede que algún programa lo esté impidiendo.", error: true);
+        _idleTimer.Start();
+    }
+
+    /// <summary>Activa o desactiva el modo consola inmersivo (se guarda, como la casilla de la ventana).</summary>
+    private void ToggleImmersive()
+    {
+        if (_immersiveEnabled == null || _setImmersive == null)
+        {
+            return;
+        }
+        try
+        {
+            var enabled = !_immersiveEnabled();
+            _setImmersive(enabled);
+            Log.Info($"Overlay: modo inmersivo {(enabled ? "activado" : "desactivado")}");
+            BuildRows();
+            SetStatus(enabled ? "Modo inmersivo activado" : "Modo inmersivo desactivado");
+        }
+        catch (Exception ex)
+        {
+            SetStatus(ex.Message, error: true);
+            Log.Error("Overlay: no se pudo cambiar el modo inmersivo", ex);
         }
     }
 
@@ -1094,7 +1296,7 @@ public sealed class OverlayForm : Form
         int itemHeight;
         int count;
         var subtitleLines = 1;
-        if (_confirmClose)
+        if (Confirming)
         {
             contentWidth = Px(520);
             itemHeight = Math.Max(Px(62), f.Small.Height + f.Row.Height + Px(20));
@@ -1193,16 +1395,15 @@ public sealed class OverlayForm : Form
         var f = _fonts;
 
         // ----- Cabecera -----
-        if (_confirmClose && _game is { } game)
+        if (_confirm is { } confirm)
         {
+            var (confirmTitle, confirmSubtitle, confirmGlyph, confirmColor) = ConfirmInfo(confirm);
             var chip = new Rectangle(_titleRect.Left, _titleRect.Top + (_titleRect.Height - Px(30)) / 2, Px(30), Px(30));
-            DrawChip(g, chip, GlyphClose, CloseGameColor, f.IconSmall);
-            TextRenderer.DrawText(g, _offerForceClose ? $"¿Forzar el cierre de {game.Name}?" : $"¿Cerrar {game.Name}?", f.Title,
+            DrawChip(g, chip, confirmGlyph, confirmColor, f.IconSmall);
+            TextRenderer.DrawText(g, confirmTitle, f.Title,
                 Rectangle.FromLTRB(chip.Right + Px(12), _titleRect.Top, _titleRect.Right, _titleRect.Bottom), TextColor,
                 TextFlags | TextFormatFlags.EndEllipsis);
-            TextRenderer.DrawText(g, _offerForceClose
-                    ? "El juego no responde. Se cerrará al momento y perderás lo que no hayas guardado."
-                    : "Se cerrará como con Alt+F4. Lo que no hayas guardado puede perderse.",
+            TextRenderer.DrawText(g, confirmSubtitle,
                 f.Small, _subtitleRect, MutedColor,
                 TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix |
                 TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
@@ -1218,10 +1419,20 @@ public sealed class OverlayForm : Form
         }
         else
         {
-            TextRenderer.DrawText(g, "Console Mode", f.Title, _titleRect, TextColor, TextFlags);
-            DrawModeBadge(g, f);
-            TextRenderer.DrawText(g, "Cambios temporales: no se guardan en tus modos", f.Small, _subtitleRect, MutedColor,
-                TextFlags | TextFormatFlags.EndEllipsis);
+            var badges = DrawModeBadge(g, f);
+            if (DrawBatteryBadge(g, f, badges.Left - Px(8)) is { } battery)
+            {
+                badges = battery;
+            }
+            TextRenderer.DrawText(g, "Console Mode", f.Title, Rectangle.FromLTRB(_titleRect.Left, _titleRect.Top, badges.Left - Px(10), _titleRect.Bottom),
+                TextColor, TextFlags | TextFormatFlags.EndEllipsis);
+
+            var clockWidth = TextRenderer.MeasureText(_clockText, f.SmallBold, Size.Empty, TextFlags).Width;
+            TextRenderer.DrawText(g, _clockText, f.SmallBold, _subtitleRect, TextColor,
+                TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(g, "Cambios temporales: no se guardan en tus modos", f.Small,
+                Rectangle.FromLTRB(_subtitleRect.Left, _subtitleRect.Top, _subtitleRect.Right - clockWidth - Px(12), _subtitleRect.Bottom),
+                MutedColor, TextFlags | TextFormatFlags.EndEllipsis);
         }
 
         // ----- Lista -----
@@ -1233,7 +1444,7 @@ public sealed class OverlayForm : Form
             {
                 continue;
             }
-            if (_confirmClose)
+            if (Confirming)
             {
                 DrawRow(g, f, _confirmRows[i], bounds, i == _confirmSelected);
             }
@@ -1277,6 +1488,11 @@ public sealed class OverlayForm : Form
             DrawMuteToggles(g, f, bounds, selected);
             return;
         }
+        if (row.Kind == RowKind.PowerActions)
+        {
+            DrawPowerActions(g, f, bounds, selected);
+            return;
+        }
 
         FillRound(g, bounds, Px(12), selected ? Accent : Surface);
         var chip = new Rectangle(bounds.Left + Px(14), bounds.Top + (bounds.Height - Px(38)) / 2, Px(38), Px(38));
@@ -1293,6 +1509,24 @@ public sealed class OverlayForm : Form
                 TextRenderer.DrawText(g, row.Title, f.RowBold, Rectangle.FromLTRB(text.Left, middle - f.RowBold.Height, text.Right, middle + Px(1)),
                     TextColor, TextFlags | TextFormatFlags.EndEllipsis);
                 TextRenderer.DrawText(g, row.Value, f.Small, Rectangle.FromLTRB(text.Left, middle + Px(2), text.Right, middle + Px(2) + f.Small.Height),
+                    titleColor, TextFlags | TextFormatFlags.EndEllipsis);
+                break;
+
+            case RowKind.ImmersiveToggle:
+                DrawChip(g, chip, row.Glyph, row.Color, f.Icon);
+                var on = _immersiveEnabled?.Invoke() == true;
+                var switchTrack = new Rectangle(text.Right - Px(44), bounds.Top + (bounds.Height - Px(24)) / 2, Px(44), Px(24));
+                FillRound(g, switchTrack, switchTrack.Height / 2, on ? (selected ? Color.White : ConsoleColor) : TrackColor);
+                var switchKnob = Px(18);
+                var switchKnobRect = new Rectangle(on ? switchTrack.Right - switchKnob - Px(3) : switchTrack.Left + Px(3), switchTrack.Top + (switchTrack.Height - switchKnob) / 2, switchKnob, switchKnob);
+                using (var switchKnobBrush = new SolidBrush(on ? (selected ? Accent : Color.White) : MutedColor))
+                {
+                    g.FillEllipse(switchKnobBrush, switchKnobRect);
+                }
+                var center = bounds.Top + bounds.Height / 2;
+                var label = Rectangle.FromLTRB(text.Left, center - f.RowBold.Height, switchTrack.Left - Px(12), center + Px(1));
+                TextRenderer.DrawText(g, row.Title, f.RowBold, label, TextColor, TextFlags | TextFormatFlags.EndEllipsis);
+                TextRenderer.DrawText(g, row.Value, f.Small, label with { Y = center + Px(2), Height = f.Small.Height },
                     titleColor, TextFlags | TextFormatFlags.EndEllipsis);
                 break;
 
@@ -1376,6 +1610,32 @@ public sealed class OverlayForm : Form
         }
     }
 
+    /// <summary>Tres botones, uno junto a otro: suspender, reiniciar y apagar el PC.</summary>
+    private void DrawPowerActions(Graphics g, Fonts f, Rectangle bounds, bool selected)
+    {
+        var gap = Px(10);
+        var count = PowerActions.Length;
+        var width = (bounds.Width - gap * (count - 1)) / count;
+        for (var i = 0; i < count; i++)
+        {
+            var left = bounds.Left + i * (width + gap);
+            var rect = Rectangle.FromLTRB(left, bounds.Top, i == count - 1 ? bounds.Right : left + width, bounds.Bottom);
+            FillRound(g, rect, Px(12), Surface);
+            if (selected && _powerIndex == i)
+            {
+                using var pen = new Pen(Accent, Px(3));
+                using var path = RoundRect(Rectangle.Inflate(rect, -Px(1), -Px(1)), Px(11));
+                g.DrawPath(pen, path);
+            }
+
+            var (label, glyph, color) = PowerInfo(PowerActions[i]);
+            var chip = new Rectangle(rect.Left + Px(12), rect.Top + (rect.Height - Px(34)) / 2, Px(34), Px(34));
+            DrawChip(g, chip, glyph, color, f.IconSmall);
+            TextRenderer.DrawText(g, label, f.SmallBold, Rectangle.FromLTRB(chip.Right + Px(10), rect.Top, rect.Right - Px(8), rect.Bottom),
+                TextColor, TextFlags | TextFormatFlags.EndEllipsis);
+        }
+    }
+
     private void DrawOption(Graphics g, Fonts f, QuickOption option, Rectangle bounds, bool selected)
     {
         FillRound(g, bounds, Px(12), selected ? Accent : Surface);
@@ -1406,8 +1666,8 @@ public sealed class OverlayForm : Form
         TextRenderer.DrawText(g, option.Name, f.Row, textRect, TextColor, TextFlags | TextFormatFlags.EndEllipsis);
     }
 
-    /// <summary>Etiqueta con el modo actual, a la derecha del título.</summary>
-    private void DrawModeBadge(Graphics g, Fonts f)
+    /// <summary>Etiqueta con el modo actual, a la derecha del título. Devuelve dónde se ha dibujado.</summary>
+    private Rectangle DrawModeBadge(Graphics g, Fonts f)
     {
         var state = _switcher.State;
         var (text, color, glyph) = state.Busy ? ("Cambiando…", MutedColor, GlyphGame)
@@ -1422,13 +1682,56 @@ public sealed class OverlayForm : Form
         TextRenderer.DrawText(g, glyph, f.IconTiny, new Rectangle(badge.Left + Px(12), badge.Top, iconWidth, badge.Height), color, CenterFlags);
         TextRenderer.DrawText(g, text, f.SmallBold, Rectangle.FromLTRB(badge.Left + Px(12) + iconWidth + Px(6), badge.Top, badge.Right, badge.Bottom),
             color, TextFlags);
+        return badge;
+    }
+
+    /// <summary>
+    /// Batería del mando que ha abierto el overlay, con su nivel dibujado, terminando en <paramref name="right"/>. Con
+    /// un mando con cable o sin datos no se dibuja nada. Devuelve dónde se ha dibujado.
+    /// </summary>
+    private Rectangle? DrawBatteryBadge(Graphics g, Fonts f, int right)
+    {
+        if (_battery is not { Power: ControllerPower.Battery } battery)
+        {
+            return null;
+        }
+        var color = battery.IsLow ? ErrorColor : TextColor;
+        var textWidth = TextRenderer.MeasureText(battery.Label, f.SmallBold, Size.Empty, TextFlags).Width;
+        var iconWidth = Px(18);
+        var cellWidth = Px(24);
+        var width = Px(12) + iconWidth + Px(6) + cellWidth + Px(6) + textWidth + Px(14);
+        var height = Px(28);
+        var badge = new Rectangle(right - width, _titleRect.Top + (_titleRect.Height - height) / 2, width, height);
+        FillRound(g, badge, height / 2, Color.FromArgb(40, color));
+        TextRenderer.DrawText(g, GlyphGame, f.IconTiny, new Rectangle(badge.Left + Px(12), badge.Top, iconWidth, badge.Height), color, CenterFlags);
+
+        // Pila: contorno, borne y un segmento por cada nivel.
+        var cellLeft = badge.Left + Px(12) + iconWidth + Px(6);
+        var body = new Rectangle(cellLeft, badge.Top + (badge.Height - Px(12)) / 2, cellWidth - Px(3), Px(12));
+        using (var pen = new Pen(color, Math.Max(1f, 1.5f * _dpi / 96f)))
+        using (var outline = RoundRect(body, Px(2)))
+        {
+            g.DrawPath(pen, outline);
+        }
+        FillRound(g, new Rectangle(body.Right, body.Top + body.Height / 2 - Px(3), Px(3), Px(6)), Px(1), color);
+        var inner = Rectangle.Inflate(body, -Px(3), -Px(3));
+        var segmentGap = Px(1);
+        var segmentWidth = (inner.Width - segmentGap * (ControllerBattery.MaxBars - 1)) / ControllerBattery.MaxBars;
+        for (var i = 0; i < battery.Bars; i++)
+        {
+            FillRound(g, new Rectangle(inner.Left + i * (segmentWidth + segmentGap), inner.Top, segmentWidth, inner.Height), Px(1), color);
+        }
+
+        TextRenderer.DrawText(g, battery.Label, f.SmallBold, Rectangle.FromLTRB(body.Right + Px(3) + Px(6), badge.Top, badge.Right, badge.Bottom),
+            color, TextFlags);
+        return badge;
     }
 
     /// <summary>Ayuda del pie con los botones del mando dibujados con sus colores (A verde, B rojo).</summary>
     private void DrawHints(Graphics g, Fonts f)
     {
         var hints = new List<(string? Button, Color Color, string Text)>();
-        if (_confirmClose)
+        if (Confirming)
         {
             hints.Add(("A", Color.FromArgb(16, 124, 16), "Elegir"));
             hints.Add(("B", Color.FromArgb(200, 40, 40), "Cancelar"));
@@ -1449,10 +1752,16 @@ public sealed class OverlayForm : Form
                 RowKind.MuteToggles => "Activar / silenciar",
                 RowKind.CloseGame => _offerForceClose ? "Forzar cierre" : "Cerrar",
                 RowKind.ReturnToGame => "Volver",
+                RowKind.ImmersiveToggle => _immersiveEnabled?.Invoke() == true ? "Desactivar" : "Activar",
                 _ => "Elegir",
             }));
             hints.Add(("B", Color.FromArgb(200, 40, 40), "Cerrar"));
-            hints.Add((null, Color.Empty, row?.Kind is RowKind.Volume ? "←→  Volumen" : row?.Kind is RowKind.MuteToggles ? "←→  Cambiar" : "↑↓  Moverse"));
+            hints.Add((null, Color.Empty, row?.Kind switch
+            {
+                RowKind.Volume => "←→  Volumen",
+                RowKind.MuteToggles or RowKind.PowerActions => "←→  Cambiar",
+                _ => "↑↓  Moverse",
+            }));
         }
 
         var x = _hintRect.Left;
@@ -1495,6 +1804,35 @@ public sealed class OverlayForm : Form
         PickerKind.Communications => ("Comunicaciones", GlyphHeadset, CommsColor),
         _ => ("Pantalla principal", GlyphDisplay, DisplayColor),
     };
+
+    private static (string Label, string Glyph, Color Color) PowerInfo(ConfirmKind kind) => kind switch
+    {
+        ConfirmKind.Sleep => ("Suspender", GlyphSleep, SleepColor),
+        ConfirmKind.Restart => ("Reiniciar", GlyphRestart, PcColor),
+        _ => ("Apagar", GlyphPower, CloseGameColor),
+    };
+
+    /// <summary>Cabecera del diálogo de confirmación.</summary>
+    private (string Title, string Subtitle, string Glyph, Color Color) ConfirmInfo(ConfirmKind kind)
+    {
+        if (kind == ConfirmKind.CloseGame)
+        {
+            var name = _game?.Name ?? "el juego";
+            return _offerForceClose
+                ? ($"¿Forzar el cierre de {name}?", "El juego no responde. Se cerrará al momento y perderás lo que no hayas guardado.",
+                    GlyphClose, CloseGameColor)
+                : ($"¿Cerrar {name}?", "Se cerrará como con Alt+F4. Lo que no hayas guardado puede perderse.", GlyphClose, CloseGameColor);
+        }
+        var (_, glyph, color) = PowerInfo(kind);
+        return kind switch
+        {
+            ConfirmKind.Sleep => ("¿Suspender el PC?",
+                "Los programas se quedan abiertos. Podrás despertarlo con el mando o desde el móvil si lo has preparado.", glyph, color),
+            ConfirmKind.Restart => ("¿Reiniciar el PC?",
+                "Se cerrarán todos los programas. Lo que no hayas guardado puede perderse.", glyph, color),
+            _ => ("¿Apagar el PC?", "Se cerrarán todos los programas. Lo que no hayas guardado puede perderse.", glyph, color),
+        };
+    }
 
     private static void FillRound(Graphics g, Rectangle rect, int radius, Color color)
     {

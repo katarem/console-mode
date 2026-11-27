@@ -220,7 +220,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         if (enabled && _gamepad == null)
         {
             _gamepad = new GamepadWatcher();
-            _gamepad.Action += action => RunOnUi(() => OnPadAction(action));
+            _gamepad.Action += (action, controllerIndex) => RunOnUi(() => OnPadAction(action, controllerIndex));
             _gamepad.Start();
         }
         else if (!enabled && _gamepad != null)
@@ -240,6 +240,10 @@ public sealed class TrayApplicationContext : ApplicationContext
             Settings.Save();
         }
         UpdateImmersiveGuard(Switcher.State);
+        if (_form != null && !_form.IsDisposed)
+        {
+            _form.ShowImmersiveState(enabled);
+        }
     }
 
     /// <summary>
@@ -263,7 +267,8 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    public void ToggleOverlay()
+    /// <param name="controllerIndex">Mando que ha abierto el overlay (null si se abre desde el menú de la bandeja).</param>
+    public void ToggleOverlay(int? controllerIndex = null)
     {
         if (_overlay != null && !_overlay.IsDisposed)
         {
@@ -286,17 +291,18 @@ public sealed class TrayApplicationContext : ApplicationContext
             _ = Task.Delay(TimeSpan.FromMilliseconds(1000)).ContinueWith(_ => RunOnUi(() =>
             {
                 _overlayPending = false;
-                ShowOverlay(foreground);
+                ShowOverlay(foreground, controllerIndex);
             }));
             return;
         }
 
-        ShowOverlay(IntPtr.Zero);
+        ShowOverlay(IntPtr.Zero, controllerIndex);
     }
 
-    private void ShowOverlay(IntPtr minimizedGame)
+    private void ShowOverlay(IntPtr minimizedGame, int? controllerIndex)
     {
-        _overlay = new OverlayForm(AppIcon, Switcher, () => _gamepad?.AnyInputHeld ?? false, minimizedGame);
+        _overlay = new OverlayForm(AppIcon, Switcher, () => _gamepad?.AnyInputHeld ?? false, minimizedGame, controllerIndex,
+            () => Settings.ImmersiveConsole, SetImmersiveConsole);
         _overlay.FormClosed += (_, _) =>
         {
             _overlay = null;
@@ -312,7 +318,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         _overlay.Show();
     }
 
-    private void OnPadAction(PadAction action)
+    private void OnPadAction(PadAction action, int controllerIndex)
     {
         if (_overlay != null && !_overlay.IsDisposed)
         {
@@ -321,7 +327,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
         else if (action == PadAction.ToggleOverlay)
         {
-            ToggleOverlay();
+            ToggleOverlay(controllerIndex);
         }
     }
 
