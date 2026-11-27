@@ -64,6 +64,7 @@ public static class QuickSwitch
     private static QuickSnapshot? _snapshot;
     private static long _requestedRefreshes;
     private static long _completedRefreshes;
+    private static long _volumeChanges; // under SnapshotLock
 
     /// <summary>Latest cached devices and volumes, or null until the first read finishes.</summary>
     public static QuickSnapshot? Snapshot
@@ -89,9 +90,16 @@ public static class QuickSwitch
     /// Reads everything again, off the calling thread. Reads never overlap, and concurrent requests share one read; the
     /// returned snapshot was read entirely after this call started.
     /// </summary>
-    public static async Task<QuickSnapshot> RefreshAsync()
+    public static Task<QuickSnapshot> RefreshAsync() => RefreshAsync(Interlocked.Increment(ref _requestedRefreshes));
+
+    /// <summary>
+    /// Waits for the reads already requested (e.g. by a quick switch, which requests one itself) without asking for
+    /// another one.
+    /// </summary>
+    public static Task<QuickSnapshot> PendingRefreshAsync() => RefreshAsync(Volatile.Read(ref _requestedRefreshes));
+
+    private static async Task<QuickSnapshot> RefreshAsync(long ticket)
     {
-        var ticket = Interlocked.Increment(ref _requestedRefreshes);
         await RefreshGate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -101,14 +109,27 @@ public static class QuickSwitch
             }
             // Every request made until now is served by this read.
             var covered = Volatile.Read(ref _requestedRefreshes);
+            long volumeChangesBefore;
+            lock (SnapshotLock)
+            {
+                volumeChangesBefore = _volumeChanges;
+            }
             var clock = Stopwatch.StartNew();
             var read = await Task.Run(ReadSnapshot).ConfigureAwait(false);
-            var changed = Publish(read);
+            var changed = Publish(read, volumeChangesBefore);
             Volatile.Write(ref _completedRefreshes, covered);
             if (changed)
             {
                 Log.Info($"Device cache refreshed in {clock.ElapsedMilliseconds} ms");
-                SnapshotChanged?.Invoke();
+                try
+                {
+                    SnapshotChanged?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    // The read itself went fine: a failing listener must not fail whoever waits for it.
+                    Log.Error("Device cache listener failed", ex);
+                }
             }
             return Snapshot!;
         }
@@ -128,11 +149,22 @@ public static class QuickSwitch
             microphones.Count > 0 ? Volume(AudioFlow.Input) : null);
     }
 
-    /// <summary>Stores the snapshot if its content differs from the current one. Returns whether it did.</summary>
-    private static bool Publish(QuickSnapshot read)
+    /// <summary>
+    /// Stores the snapshot if its content differs from the current one. Returns whether it did. If the volume was changed
+    /// here while reading, the read volumes may be older than that change, so the cached ones are kept.
+    /// </summary>
+    private static bool Publish(QuickSnapshot read, long volumeChangesBefore)
     {
         lock (SnapshotLock)
         {
+            if (_snapshot != null && _volumeChanges != volumeChangesBefore)
+            {
+                read = read with
+                {
+                    OutputVolume = read.OutputVolume != null ? _snapshot.OutputVolume ?? read.OutputVolume : null,
+                    InputVolume = read.InputVolume != null ? _snapshot.InputVolume ?? read.InputVolume : null,
+                };
+            }
             if (_snapshot != null && _snapshot.HasSameContent(read))
             {
                 return false;
@@ -147,6 +179,7 @@ public static class QuickSwitch
     {
         lock (SnapshotLock)
         {
+            _volumeChanges++;
             if (_snapshot == null)
             {
                 return;

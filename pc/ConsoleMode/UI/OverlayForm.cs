@@ -342,11 +342,11 @@ public sealed class OverlayForm : Form
         var showStartedAt = _openClock.ElapsedMilliseconds;
         Place();
         GrabFocus();
+        Log.Info($"Overlay: abierto en {_openClock.ElapsedMilliseconds} ms");
         var openedAt = _openClock.ElapsedMilliseconds;
-        Log.Info($"Overlay: abierto en {openedAt} ms");
         Log.Info($"Overlay timing: windows {_windowsDoneAt} ms, data {_dataDoneAt - _windowsDoneAt} ms, " +
                  $"layout {_layoutDoneAt - _dataDoneAt} ms, show {showStartedAt - _layoutDoneAt} ms, " +
-                 $"focus {openedAt - showStartedAt} ms, cache {(_appliedSnapshot != null ? "ready" : "loading")}");
+                 $"place+focus {openedAt - showStartedAt} ms, cache {(_appliedSnapshot != null ? "ready" : "loading")}");
         _idleTimer.Start();
         _volumeTimer.Start();
 
@@ -1035,8 +1035,8 @@ public sealed class OverlayForm : Form
                         break;
                 }
             });
-            // Read again (off the UI thread) so the lists show the change when going back to the main view.
-            var fresh = await QuickSwitch.RefreshAsync();
+            // The switch has asked for a new read (off the UI thread): the lists show the change on the main view.
+            var fresh = await QuickSwitch.PendingRefreshAsync();
             if (picker == PickerKind.Display)
             {
                 _targetDisplayGdiName = fresh.FindDisplay(option.Id)?.GdiName;
