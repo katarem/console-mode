@@ -411,9 +411,11 @@ public sealed class MainForm : Form
         setupButtons.Margin = new Padding(0, 8, 0, 0);
         setupButtons.Controls.Add(_wakeApply);
         setupButtons.Controls.Add(_wakeRevert);
-        setupStack.Controls.Add(AddHelp(setupButtons,
+        const string adminHelp =
             "Windows pedirá permiso de administrador. Console Mode guarda cómo estaba cada ajuste: con «Deshacer todo», " +
-            "o al desinstalar la app, todo vuelve a quedar como antes. Al aplicar, la red puede cortarse un momento."));
+            "o al desinstalar la app, todo vuelve a quedar como antes. Al aplicar, la red puede cortarse un momento.";
+        setupStack.Controls.Add(AddHelp(setupButtons, adminHelp));
+        _help.SetToolTip(_wakeApply, UiText.WrapForTooltip(adminHelp));
         setupStack.Controls.Add(_wakeStatus);
         setup.Controls.Add(setupStack);
         stack.Controls.Add(setup);
@@ -947,6 +949,8 @@ public sealed class MainForm : Form
             _devices.Items.Add(item);
         }
         _devices.EndUpdate();
+        // A vertical scroll bar may have appeared or gone: the columns follow the new width.
+        FitDeviceColumns();
     }
 
     public void UpdateModeState(ModeState state)

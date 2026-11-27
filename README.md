@@ -130,8 +130,8 @@ pública.
 
 Con un mando **Xbox o compatible XInput** (incluidos los 8BitDo en modo X), mantén **View + Menú** (los dos botones
 pequeños del centro) durante **medio segundo**. Aparece un panel en la esquina inferior derecha. Arriba muestra el modo
-actual, la **hora** y la **batería** del mando con el que lo has abierto (en rojo si está baja; con un mando con cable,
-o si el mando no informa de su batería, no aparece). Debajo tiene:
+actual, la **hora** y la **batería** del mando con el que lo has abierto (en rojo si está baja; con un mando con cable pone
+«Con cable», y si el mando no informa de su batería no aparece). Debajo tiene:
 
 - **Volver a modo PC** (en modo consola): cierra el frontal (Big Picture, Playnite...) y vuelve a tu pantalla y tu audio del modo PC, sin
   soltar el mando.

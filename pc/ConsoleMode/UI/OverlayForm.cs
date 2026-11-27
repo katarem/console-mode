@@ -134,8 +134,8 @@ public sealed class OverlayForm : Form
     private readonly IntPtr _returnTarget;
     private bool _returnRequested;
 
-    // Diálogo de confirmación en el centro de la pantalla («¿Cerrar el juego?», «¿Apagar el PC?»...): qué pregunta
-    // (null si no está abierto), sus dos opciones y la elegida (empieza en «No»).
+    // Centered confirm dialog («¿Cerrar el juego?», «¿Apagar el PC?»...): what it asks (null when closed), its two
+    // options and the selected one (it starts on «No»).
     private ConfirmKind? _confirm;
     private readonly List<Row> _confirmRows = new();
     private int _confirmSelected;
@@ -172,19 +172,19 @@ public sealed class OverlayForm : Form
     private long _dataDoneAt;
     private long _layoutDoneAt;
 
-    // Vista principal: fila elegida, en la fila de silenciar cuál de los dos botones (0 = sonido, 1 = micrófono) y en la
-    // de energía cuál de los tres (índice de PowerActions).
+    // Main view: selected row, which of the two mute buttons is selected (0 = sound, 1 = microphone) and which of the
+    // three power buttons (index into PowerActions).
     private int _selected;
     private int _toggleIndex;
     private int _powerIndex;
 
-    // Cabecera: batería del mando que ha abierto el overlay (null si se ha abierto de otra forma o no se sabe) y hora.
+    // Header: battery of the controller that opened the overlay (null when opened otherwise or unknown) and the time.
     private readonly int? _controllerIndex;
     private ControllerBattery? _battery;
     private int _ticks;
     private string _clockText = CurrentTime();
 
-    // Modo inmersivo: se lee y se cambia a través de la app (null en la precarga: sin fila).
+    // Immersive mode is read and changed through the app (null in the warm-up overlay: no row).
     private readonly Func<bool>? _immersiveEnabled;
     private readonly Action<bool>? _setImmersive;
 
@@ -209,9 +209,9 @@ public sealed class OverlayForm : Form
     /// Juego en pantalla completa exclusiva que se ha minimizado para poder enseñar el overlay: es la ventana «de antes»
     /// y, al cerrar el overlay, se restaura (salvo que se haya cerrado el juego).
     /// </param>
-    /// <param name="controllerIndex">Índice XInput del mando que ha abierto el overlay, para mostrar su batería.</param>
-    /// <param name="immersiveEnabled">Si el modo consola inmersivo está activado.</param>
-    /// <param name="setImmersive">Activa o desactiva el modo consola inmersivo (y lo guarda).</param>
+    /// <param name="controllerIndex">XInput index of the controller that opened the overlay, to show its battery.</param>
+    /// <param name="immersiveEnabled">Whether the immersive console mode is on.</param>
+    /// <param name="setImmersive">Turns the immersive console mode on or off (and saves it).</param>
     public OverlayForm(Icon icon, ModeSwitcher switcher, Func<bool> inputHeld, IntPtr minimizedGame = default,
         int? controllerIndex = null, Func<bool>? immersiveEnabled = null, Action<bool>? setImmersive = null)
     {
@@ -649,7 +649,7 @@ public sealed class OverlayForm : Form
                 immersive ? "Activado: solo se ven el frontal y los juegos" : "Desactivado: se ven todas las ventanas",
                 GlyphImmersive, immersive ? ConsoleColor : MutedOffColor));
         }
-        // Al final, lejos de la fila con la que se empieza: siempre pide confirmación, pero mejor no tenerla a mano.
+        // Last, far from the row the overlay starts on: it always asks first, but it is better kept out of reach.
         _rows.Add(new Row(RowKind.PowerActions, "power", "", "", GlyphPower, CloseGameColor));
 
         var index = _rows.FindIndex(r => r.Key == selectedKey);
@@ -715,7 +715,7 @@ public sealed class OverlayForm : Form
         }
     }
 
-    /// <summary>Cada segundo: la hora, la batería del mando (cada BatteryRefreshTicks) y el volumen.</summary>
+    /// <summary>Every second: the clock, the controller battery (every BatteryRefreshTicks) and the volume.</summary>
     private void OnTick()
     {
         var clock = CurrentTime();
@@ -733,7 +733,7 @@ public sealed class OverlayForm : Form
 
     private static string CurrentTime() => DateTime.Now.ToString("t", System.Globalization.CultureInfo.CurrentCulture);
 
-    /// <summary>Lee la batería del mando fuera del hilo de la interfaz (XInput puede tardar con mandos inalámbricos).</summary>
+    /// <summary>Reads the controller battery off the UI thread (XInput can be slow with wireless controllers).</summary>
     private async Task RefreshBatteryAsync()
     {
         if (_controllerIndex is not { } index)
@@ -980,8 +980,8 @@ public sealed class OverlayForm : Form
     }
 
     /// <summary>
-    /// Pregunta en el centro de la pantalla si se cierra (o se fuerza el cierre de) el juego, o si se suspende, reinicia o
-    /// apaga el PC.
+    /// Asks in the middle of the screen whether to close (or force close) the game, or to suspend, restart or shut down
+    /// the PC.
     /// </summary>
     private void OpenConfirm(ConfirmKind kind)
     {
@@ -1002,7 +1002,7 @@ public sealed class OverlayForm : Form
         });
         _confirmRows.Add(new Row(RowKind.SwitchMode, "confirm-no",
             kind == ConfirmKind.CloseGame ? "No, seguir jugando" : "No, volver", "Vuelve al overlay", GlyphBack, MutedOffColor));
-        _confirmSelected = 1; // «No»: un A de más no cierra el juego ni apaga el PC
+        _confirmSelected = 1; // «No»: an extra A neither closes the game nor shuts the PC down
         _confirm = kind;
         _scroll = 0;
         _status = "";
@@ -1039,10 +1039,10 @@ public sealed class OverlayForm : Form
         }
     }
 
-    /// <summary>Suspende, reinicia o apaga el PC (ya confirmado).</summary>
+    /// <summary>Suspends, restarts or shuts down the PC (already confirmed).</summary>
     private async Task RunPowerActionAsync(ConfirmKind kind)
     {
-        Log.Info($"Overlay: {kind}");
+        Log.Info($"Overlay: power action {kind}");
         _busy = true;
         _idleTimer.Stop();
         SetStatus(kind switch
@@ -1059,7 +1059,7 @@ public sealed class OverlayForm : Form
         };
         try
         {
-            // Suspender no vuelve hasta que el PC se despierta.
+            // Suspending only returns once the PC wakes up again.
             await Task.Run(action);
             if (kind != ConfirmKind.Sleep)
             {
@@ -1068,12 +1068,13 @@ public sealed class OverlayForm : Form
         }
         catch (Exception ex)
         {
-            Log.Error("Overlay: no se pudo suspender, reiniciar o apagar el PC", ex);
+            Log.Error($"Overlay: power action {kind} failed", ex);
             _busy = false;
             if (!IsDisposed)
             {
                 SetStatus(ex.Message, error: true);
                 _idleTimer.Start();
+                ApplyLatestSnapshot();
             }
             return;
         }
@@ -1085,15 +1086,16 @@ public sealed class OverlayForm : Form
         }
         if (kind == ConfirmKind.Sleep)
         {
-            // El PC se ha despertado: el overlay ya no hace falta.
+            // The PC has woken up: the overlay is no longer needed.
             CloseWhenReleased();
             return;
         }
         SetStatus("Windows aún no lo ha hecho: puede que algún programa lo esté impidiendo.", error: true);
         _idleTimer.Start();
+        ApplyLatestSnapshot();
     }
 
-    /// <summary>Activa o desactiva el modo consola inmersivo (se guarda, como la casilla de la ventana).</summary>
+    /// <summary>Turns the immersive console mode on or off (saved, like the window checkbox).</summary>
     private void ToggleImmersive()
     {
         if (_immersiveEnabled == null || _setImmersive == null)
@@ -1104,14 +1106,14 @@ public sealed class OverlayForm : Form
         {
             var enabled = !_immersiveEnabled();
             _setImmersive(enabled);
-            Log.Info($"Overlay: modo inmersivo {(enabled ? "activado" : "desactivado")}");
+            Log.Info($"Overlay: immersive mode {(enabled ? "on" : "off")}");
             BuildRows();
             SetStatus(enabled ? "Modo inmersivo activado" : "Modo inmersivo desactivado");
         }
         catch (Exception ex)
         {
             SetStatus(ex.Message, error: true);
-            Log.Error("Overlay: no se pudo cambiar el modo inmersivo", ex);
+            Log.Error("Overlay: could not switch the immersive mode", ex);
         }
     }
 
@@ -1610,7 +1612,7 @@ public sealed class OverlayForm : Form
         }
     }
 
-    /// <summary>Tres botones, uno junto a otro: suspender, reiniciar y apagar el PC.</summary>
+    /// <summary>Three buttons side by side: suspend, restart and shut down the PC.</summary>
     private void DrawPowerActions(Graphics g, Fonts f, Rectangle bounds, bool selected)
     {
         var gap = Px(10);
@@ -1666,7 +1668,7 @@ public sealed class OverlayForm : Form
         TextRenderer.DrawText(g, option.Name, f.Row, textRect, TextColor, TextFlags | TextFormatFlags.EndEllipsis);
     }
 
-    /// <summary>Etiqueta con el modo actual, a la derecha del título. Devuelve dónde se ha dibujado.</summary>
+    /// <summary>Badge with the current mode, right of the title. Returns where it was drawn.</summary>
     private Rectangle DrawModeBadge(Graphics g, Fonts f)
     {
         var state = _switcher.State;
@@ -1686,12 +1688,13 @@ public sealed class OverlayForm : Form
     }
 
     /// <summary>
-    /// Batería del mando que ha abierto el overlay, con su nivel dibujado, terminando en <paramref name="right"/>. Con
-    /// un mando con cable o sin datos no se dibuja nada. Devuelve dónde se ha dibujado.
+    /// Battery of the controller that opened the overlay, with its level drawn, ending at <paramref name="right"/>
+    /// (a wired controller shows «Con cable» and no level). Nothing is drawn when the battery is unknown. Returns where
+    /// it was drawn.
     /// </summary>
     private Rectangle? DrawBatteryBadge(Graphics g, Fonts f, int right)
     {
-        if (_battery is not { Power: ControllerPower.Battery } battery)
+        if (_battery is not { } battery)
         {
             return null;
         }
@@ -1705,7 +1708,7 @@ public sealed class OverlayForm : Form
         FillRound(g, badge, height / 2, Color.FromArgb(40, color));
         TextRenderer.DrawText(g, GlyphGame, f.IconTiny, new Rectangle(badge.Left + Px(12), badge.Top, iconWidth, badge.Height), color, CenterFlags);
 
-        // Pila: contorno, borne y un segmento por cada nivel.
+        // Battery cell: outline, terminal and one segment per level (none when wired).
         var cellLeft = badge.Left + Px(12) + iconWidth + Px(6);
         var body = new Rectangle(cellLeft, badge.Top + (badge.Height - Px(12)) / 2, cellWidth - Px(3), Px(12));
         using (var pen = new Pen(color, Math.Max(1f, 1.5f * _dpi / 96f)))
@@ -1717,7 +1720,8 @@ public sealed class OverlayForm : Form
         var inner = Rectangle.Inflate(body, -Px(3), -Px(3));
         var segmentGap = Px(1);
         var segmentWidth = (inner.Width - segmentGap * (ControllerBattery.MaxBars - 1)) / ControllerBattery.MaxBars;
-        for (var i = 0; i < battery.Bars; i++)
+        var bars = battery.Power == ControllerPower.Battery ? battery.Bars : 0;
+        for (var i = 0; i < bars; i++)
         {
             FillRound(g, new Rectangle(inner.Left + i * (segmentWidth + segmentGap), inner.Top, segmentWidth, inner.Height), Px(1), color);
         }
@@ -1812,7 +1816,7 @@ public sealed class OverlayForm : Form
         _ => ("Apagar", GlyphPower, CloseGameColor),
     };
 
-    /// <summary>Cabecera del diálogo de confirmación.</summary>
+    /// <summary>Header of the confirm dialog.</summary>
     private (string Title, string Subtitle, string Glyph, Color Color) ConfirmInfo(ConfirmKind kind)
     {
         if (kind == ConfirmKind.CloseGame)
