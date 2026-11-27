@@ -180,6 +180,7 @@ public sealed class OverlayForm : Form
 
     // Header: battery of the controller that opened the overlay (null when opened otherwise or unknown) and the time.
     private readonly int? _controllerIndex;
+    private readonly ButtonIconFamily _buttonIcons;
     private ControllerBattery? _battery;
     private int _ticks;
     private string _clockText = CurrentTime();
@@ -212,9 +213,12 @@ public sealed class OverlayForm : Form
     /// <param name="controllerIndex">XInput index of the controller that opened the overlay, to show its battery.</param>
     /// <param name="immersiveEnabled">Whether the immersive console mode is on.</param>
     /// <param name="setImmersive">Turns the immersive console mode on or off (and saves it).</param>
+    /// <param name="buttonIcons">Console whose button icons the hints at the bottom show.</param>
     public OverlayForm(Icon icon, ModeSwitcher switcher, Func<bool> inputHeld, IntPtr minimizedGame = default,
-        int? controllerIndex = null, Func<bool>? immersiveEnabled = null, Action<bool>? setImmersive = null)
+        int? controllerIndex = null, Func<bool>? immersiveEnabled = null, Action<bool>? setImmersive = null,
+        ButtonIconFamily buttonIcons = ButtonIconFamily.Xbox)
     {
+        _buttonIcons = buttonIcons;
         _controllerIndex = controllerIndex;
         _immersiveEnabled = immersiveEnabled;
         _setImmersive = setImmersive;
@@ -1731,26 +1735,26 @@ public sealed class OverlayForm : Form
         return badge;
     }
 
-    /// <summary>Ayuda del pie con los botones del mando dibujados con sus colores (A verde, B rojo).</summary>
+    /// <summary>Hints at the bottom, with the gamepad buttons drawn with the chosen console's icons.</summary>
     private void DrawHints(Graphics g, Fonts f)
     {
-        var hints = new List<(string? Button, Color Color, string Text)>();
+        var hints = new List<(GamepadButtons? Button, string Text)>();
         if (Confirming)
         {
-            hints.Add(("A", Color.FromArgb(16, 124, 16), "Elegir"));
-            hints.Add(("B", Color.FromArgb(200, 40, 40), "Cancelar"));
-            hints.Add((null, Color.Empty, "↑↓  Moverse"));
+            hints.Add((GamepadButtons.A, "Elegir"));
+            hints.Add((GamepadButtons.B, "Cancelar"));
+            hints.Add((null, "↑↓  Moverse"));
         }
         else if (_picker != null)
         {
-            hints.Add(("A", Color.FromArgb(16, 124, 16), "Elegir"));
-            hints.Add(("B", Color.FromArgb(200, 40, 40), "Volver"));
-            hints.Add((null, Color.Empty, "↑↓  Moverse"));
+            hints.Add((GamepadButtons.A, "Elegir"));
+            hints.Add((GamepadButtons.B, "Volver"));
+            hints.Add((null, "↑↓  Moverse"));
         }
         else
         {
             var row = _selected < _rows.Count ? _rows[_selected] : null;
-            hints.Add(("A", Color.FromArgb(16, 124, 16), row?.Kind switch
+            hints.Add((GamepadButtons.A, row?.Kind switch
             {
                 RowKind.Volume => VolumeOf(row.Flow)?.Muted == true ? "Activar" : "Silenciar",
                 RowKind.MuteToggles => "Activar / silenciar",
@@ -1759,8 +1763,8 @@ public sealed class OverlayForm : Form
                 RowKind.ImmersiveToggle => _immersiveEnabled?.Invoke() == true ? "Desactivar" : "Activar",
                 _ => "Elegir",
             }));
-            hints.Add(("B", Color.FromArgb(200, 40, 40), "Cerrar"));
-            hints.Add((null, Color.Empty, row?.Kind switch
+            hints.Add((GamepadButtons.B, "Cerrar"));
+            hints.Add((null, row?.Kind switch
             {
                 RowKind.Volume => "←→  Volumen",
                 RowKind.MuteToggles or RowKind.PowerActions => "←→  Cambiar",
@@ -1770,16 +1774,19 @@ public sealed class OverlayForm : Form
 
         var x = _hintRect.Left;
         var circle = Px(22);
-        foreach (var (button, color, text) in hints)
+        foreach (var (button, text) in hints)
         {
-            if (button != null)
+            if (button is { } pressed)
             {
+                // Drawn with the chosen console's icons: A is «A», «✕» or «B» depending on the family.
+                var glyph = ButtonGlyphs.For(_buttonIcons, pressed);
                 var c = new Rectangle(x, _hintRect.Top + (_hintRect.Height - circle) / 2, circle, circle);
-                using (var brush = new SolidBrush(color))
+                using (var brush = new SolidBrush(Color.FromArgb(glyph.Fill.R, glyph.Fill.G, glyph.Fill.B)))
                 {
                     g.FillEllipse(brush, c);
                 }
-                TextRenderer.DrawText(g, button, f.Button, c, Color.White, CenterFlags);
+                TextRenderer.DrawText(g, glyph.Text, glyph.UsesSymbolFont ? f.ButtonSymbol : f.Button, c,
+                    Color.FromArgb(glyph.Foreground.R, glyph.Foreground.G, glyph.Foreground.B), CenterFlags);
                 x = c.Right + Px(8);
             }
             var width = TextRenderer.MeasureText(text, f.Small, Size.Empty, TextFlags).Width;
@@ -1872,6 +1879,7 @@ public sealed class OverlayForm : Form
             Small = Make("Segoe UI", 10f);
             SmallBold = Make("Segoe UI Semibold", 10f);
             Button = Make("Segoe UI", 9f, FontStyle.Bold);
+            ButtonSymbol = Make("Segoe UI Symbol", 10f, FontStyle.Bold);
             Icon = Make(IconFamily, 13f);
             IconSmall = Make(IconFamily, 11f);
             IconTiny = Make(IconFamily, 9f);
@@ -1883,6 +1891,7 @@ public sealed class OverlayForm : Form
         public Font Small { get; }
         public Font SmallBold { get; }
         public Font Button { get; }
+        public Font ButtonSymbol { get; }
         public Font Icon { get; }
         public Font IconSmall { get; }
         public Font IconTiny { get; }
@@ -1895,7 +1904,7 @@ public sealed class OverlayForm : Form
 
         public void Dispose()
         {
-            foreach (var font in new[] { Title, Row, RowBold, Small, SmallBold, Button, Icon, IconSmall, IconTiny })
+            foreach (var font in new[] { Title, Row, RowBold, Small, SmallBold, Button, ButtonSymbol, Icon, IconSmall, IconTiny })
             {
                 font.Dispose();
             }

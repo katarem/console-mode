@@ -33,6 +33,31 @@ public sealed class GamepadWatcher : IDisposable
     private volatile bool _anyInputHeld;
     private const short StickHeldThreshold = 16000;
 
+    private volatile uint _combo = (uint)OverlayCombos.Default;
+    private volatile bool _triggerSuspended;
+    private volatile uint _heldButtons;
+    private volatile bool _anyControllerConnected;
+
+    /// <summary>Combination that opens the overlay. Applied to every controller on the next reading.</summary>
+    public GamepadButtons Combo
+    {
+        get => (GamepadButtons)_combo;
+        set => _combo = (uint)value;
+    }
+
+    /// <summary>While true (a new combination is being captured), the controllers emit no actions.</summary>
+    public bool TriggerSuspended
+    {
+        get => _triggerSuspended;
+        set => _triggerSuspended = value;
+    }
+
+    /// <summary>Buttons held on the first connected controller that has any held in the last reading.</summary>
+    public GamepadButtons HeldButtons => (GamepadButtons)_heldButtons;
+
+    /// <summary>Whether a controller answered in the last reading.</summary>
+    public bool AnyControllerConnected => _anyControllerConnected;
+
     public void Start()
     {
         if (_thread != null)
@@ -52,6 +77,10 @@ public sealed class GamepadWatcher : IDisposable
             {
                 var now = clock.Elapsed;
                 var held = false;
+                var heldButtons = GamepadButtons.None;
+                var connected = false;
+                var combo = Combo;
+                var suspended = TriggerSuspended;
                 for (var i = 0; i < MaxControllers; i++)
                 {
                     if (now < _retryAt[i])
@@ -65,18 +94,29 @@ public sealed class GamepadWatcher : IDisposable
                         continue;
                     }
 
+                    connected = true;
                     var pad = state.Gamepad;
-                    held |= pad.wButtons != 0 ||
+                    var buttons = GamepadInput.FromXInput(pad.wButtons, pad.bLeftTrigger, pad.bRightTrigger);
+                    held |= buttons != GamepadButtons.None ||
                             Math.Abs((int)pad.sThumbLX) > StickHeldThreshold || Math.Abs((int)pad.sThumbLY) > StickHeldThreshold;
+                    if (heldButtons == GamepadButtons.None)
+                    {
+                        heldButtons = buttons;
+                    }
 
-                    foreach (var action in _navigators[i].Update(pad.wButtons, pad.sThumbLX, pad.sThumbLY, now, OverlayOpen))
+                    var navigator = _navigators[i];
+                    navigator.Combo = combo;
+                    navigator.TriggerSuspended = suspended;
+                    foreach (var action in navigator.Update(buttons, pad.sThumbLX, pad.sThumbLY, now, OverlayOpen))
                     {
                         Action?.Invoke(action, i);
                     }
                 }
                 _anyInputHeld = held;
+                _heldButtons = (uint)heldButtons;
+                _anyControllerConnected = connected;
 
-                _cts.Token.WaitHandle.WaitOne(OverlayOpen ? ActiveInterval : IdleInterval);
+                _cts.Token.WaitHandle.WaitOne(OverlayOpen || suspended ? ActiveInterval : IdleInterval);
             }
         }
         catch (DllNotFoundException ex)

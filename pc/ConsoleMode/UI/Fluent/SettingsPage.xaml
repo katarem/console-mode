@@ -1,0 +1,70 @@
+<Page x:Class="ConsoleMode.UI.Fluent.SettingsPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+      xmlns:local="clr-namespace:ConsoleMode.UI.Fluent"
+      Title="Ajustes">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Style="{StaticResource PageContent}">
+            <TextBlock Style="{StaticResource PageTitle}" Text="Ajustes" />
+
+            <Border Style="{StaticResource CardRow}">
+                <DockPanel>
+                    <local:IconChip DockPanel.Dock="Left" Glyph="&#xE71D;" ChipColor="#64748B" />
+                    <ui:ToggleSwitch x:Name="TraySwitch" DockPanel.Dock="Right" VerticalAlignment="Center" />
+                    <TextBlock Style="{StaticResource RowTitle}" Text="Icono en la bandeja del sistema" Margin="16,0"
+                               ToolTip="El icono aparece en «iconos ocultos». Console Mode sigue funcionando en segundo plano al cerrar esta ventana; si ocultas el icono, vuelve a abrir Console Mode (menú Inicio o el .exe) para verla." />
+                </DockPanel>
+            </Border>
+            <Border Style="{StaticResource CardRow}">
+                <DockPanel>
+                    <local:IconChip DockPanel.Dock="Left" Glyph="&#xE770;" ChipColor="#64748B" />
+                    <ui:ToggleSwitch x:Name="StartupSwitch" DockPanel.Dock="Right" VerticalAlignment="Center" />
+                    <TextBlock Style="{StaticResource RowTitle}" Text="Iniciar con Windows (en segundo plano)" Margin="16,0" />
+                </DockPanel>
+            </Border>
+            <Border Style="{StaticResource CardRow}">
+                <DockPanel>
+                    <local:IconChip DockPanel.Dock="Left" Glyph="&#xE968;" ChipColor="#64748B" />
+                    <ui:NumberBox x:Name="PortBox" DockPanel.Dock="Right" Width="160" Minimum="1024" Maximum="65535" MaxDecimalPlaces="0"
+                                  SmallChange="1" VerticalAlignment="Center" ClearButtonEnabled="False" />
+                    <TextBlock Style="{StaticResource RowTitle}" Text="Puerto de escucha" Margin="16,0" ToolTip="Se aplica al reiniciar la app." />
+                </DockPanel>
+            </Border>
+
+            <TextBlock Style="{StaticResource SectionTitle}" Text="Actualizaciones" />
+            <Border Style="{StaticResource CardRow}" Padding="18">
+                <StackPanel>
+                    <DockPanel>
+                        <local:IconChip DockPanel.Dock="Left" Glyph="&#xE896;" ChipColor="#4C46E5" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <ui:Button x:Name="InstallButton" Content="Actualizar ahora" Appearance="Primary" Margin="0,0,8,0" Visibility="Collapsed" Click="OnInstallClick" />
+                            <ui:Button x:Name="CheckButton" Content="Buscar actualizaciones" Click="OnCheckClick" />
+                        </StackPanel>
+                        <StackPanel Margin="16,0" VerticalAlignment="Center">
+                            <TextBlock x:Name="VersionText" Style="{StaticResource RowTitle}" />
+                            <TextBlock x:Name="UpdateText" Style="{StaticResource Secondary}" />
+                        </StackPanel>
+                    </DockPanel>
+                    <DockPanel Margin="52,14,0,0">
+                        <ui:ToggleSwitch x:Name="AutoUpdateSwitch" DockPanel.Dock="Right" />
+                        <TextBlock Style="{StaticResource RowTitle}" Text="Buscar actualizaciones automáticamente" />
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                <ui:Button Content="Abrir carpeta de configuración" Click="OnOpenFolderClick">
+                    <ui:Button.Icon>
+                        <ui:SymbolIcon Symbol="Folder24" />
+                    </ui:Button.Icon>
+                </ui:Button>
+                <ui:Button Content="Salir de Console Mode" Margin="8,0,0,0" Click="OnExitClick">
+                    <ui:Button.Icon>
+                        <ui:SymbolIcon Symbol="SignOut24" />
+                    </ui:Button.Icon>
+                </ui:Button>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

@@ -1,6 +1,7 @@
 name: CI
 
-# Comprobaciones rápidas de cada pull request: compilar la app de PC y pasar el análisis y los tests de la móvil.
+# Comprobaciones rápidas de cada pull request: compilar la app de PC y pasar sus tests, y el análisis y los tests de la
+# móvil.
 # No se generan el instalador, la versión portable ni el APK: eso solo se hace una vez por versión, al publicar la
 # release (release.yml).
 on:
@@ -58,7 +59,7 @@ jobs:
           echo "PC: $pc · Móvil: $mobile · APK: $android"
 
   pc:
-    name: App de PC (compilar)
+    name: App de PC (compilar y tests)
     needs: changes
     if: needs.changes.outputs.pc == 'true'
     runs-on: windows-latest
@@ -70,6 +71,8 @@ jobs:
           dotnet-version: '8.0.x'
 
       - run: dotnet build pc/ConsoleMode/ConsoleMode.csproj -c Release
+
+      - run: dotnet test pc/ConsoleMode.Tests/ConsoleMode.Tests.csproj -c Release
 
   mobile:
     name: App móvil (análisis y tests)

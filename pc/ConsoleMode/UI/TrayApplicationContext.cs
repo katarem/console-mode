@@ -19,7 +19,8 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly RegisteredWaitHandle _showWait;
     private readonly EventWaitHandle _exitEvent;
     private readonly RegisteredWaitHandle _exitWait;
-    private MainForm? _form;
+    // Created the first time the window is opened, so starting in the background does not load WPF.
+    private IMainWindow? _window;
     private GamepadWatcher? _gamepad;
     private readonly System.Windows.Forms.Timer _updateTimer;
     private Version? _notifiedUpdate;
@@ -48,7 +49,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         Switcher.StateChanged += state => RunOnUi(() => OnStateChanged(state));
 
         Server = new RemoteServer(Settings, Switcher, ConfirmPairingAsync);
-        Server.DevicesChanged += () => RunOnUi(() => _form?.RefreshDevices());
+        Server.DevicesChanged += () => RunOnUi(() => _window?.RefreshDevices());
         Server.RemoteModeRequested += (device, mode) =>
             RunOnUi(() => Notify($"{device} ha pedido el modo {mode.ToDisplayName()}"));
         Server.RemotePowerRequested += (device, action) =>
@@ -85,7 +86,7 @@ public sealed class TrayApplicationContext : ApplicationContext
                 Log.Info("Ha cambiado la lista de pantallas o de audio");
                 QuickSwitch.NotifyDevicesChanged();
                 // The overlay gets the new devices through QuickSwitch.SnapshotChanged.
-                RunOnUi(() => _form?.RefreshDeviceLists());
+                RunOnUi(() => _window?.RefreshDeviceLists());
             };
         }
         catch (Exception ex)
@@ -172,20 +173,8 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     public void ShowMainWindow()
     {
-        if (_form == null || _form.IsDisposed)
-        {
-            _form = new MainForm(this);
-        }
-        if (!_form.Visible)
-        {
-            _form.Show();
-        }
-        if (_form.WindowState == FormWindowState.Minimized)
-        {
-            _form.WindowState = FormWindowState.Normal;
-        }
-        _form.Activate();
-        _form.BringToFront();
+        _window ??= Fluent.MainWindowHost.Create(this);
+        _window.ShowAndActivate();
     }
 
     public void SetTrayIconVisible(bool visible)
@@ -208,7 +197,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         Server.DisconnectDevice(deviceId);
     }
 
-    /// <summary>Activa o desactiva la lectura del mando para el overlay (View + Menú).</summary>
+    /// <summary>Turns reading the gamepad for the overlay (its combination) on or off.</summary>
     public void SetGamepadOverlayEnabled(bool enabled)
     {
         lock (Settings)
@@ -219,7 +208,7 @@ public sealed class TrayApplicationContext : ApplicationContext
 
         if (enabled && _gamepad == null)
         {
-            _gamepad = new GamepadWatcher();
+            _gamepad = new GamepadWatcher { Combo = Settings.OverlayComboButtons };
             _gamepad.Action += (action, controllerIndex) => RunOnUi(() => OnPadAction(action, controllerIndex));
             _gamepad.Start();
         }
@@ -231,6 +220,42 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
+    /// <summary>Saves the combination that opens the overlay and applies it right away.</summary>
+    public void SetOverlayCombo(GamepadButtons combo)
+    {
+        var validation = OverlayCombos.Validate(combo);
+        if (validation != ComboValidation.Valid)
+        {
+            throw new ArgumentException($"Invalid overlay combination {combo}: {validation}", nameof(combo));
+        }
+        lock (Settings)
+        {
+            Settings.OverlayComboButtons = combo;
+            Settings.Save();
+        }
+        if (_gamepad != null)
+        {
+            _gamepad.Combo = combo;
+        }
+        Log.Info($"Overlay combination: {combo}");
+    }
+
+    /// <summary>Saves which console's button icons the overlay and the window show.</summary>
+    public void SetButtonIconFamily(ButtonIconFamily family)
+    {
+        lock (Settings)
+        {
+            Settings.ButtonIcons = family;
+            Settings.Save();
+        }
+    }
+
+    /// <summary>
+    /// Starts reading the controllers to capture a new overlay combination. The overlay does not open until the
+    /// returned session is disposed.
+    /// </summary>
+    public GamepadCaptureSession BeginComboCapture() => new(_gamepad);
+
     /// <summary>Activa o desactiva el modo consola inmersivo (solo actúa mientras se está en modo consola).</summary>
     public void SetImmersiveConsole(bool enabled)
     {
@@ -240,10 +265,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             Settings.Save();
         }
         UpdateImmersiveGuard(Switcher.State);
-        if (_form != null && !_form.IsDisposed)
-        {
-            _form.ShowImmersiveState(enabled);
-        }
+        _window?.ShowImmersiveState(enabled);
     }
 
     /// <summary>
@@ -275,8 +297,9 @@ public sealed class TrayApplicationContext : ApplicationContext
             _overlay.Close();
             return;
         }
-        if (_overlayPending)
+        if (_overlayPending || _gamepad?.TriggerSuspended == true)
         {
+            // A new combination is being captured: the overlay could not be used with the gamepad.
             return;
         }
 
@@ -302,7 +325,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     private void ShowOverlay(IntPtr minimizedGame, int? controllerIndex)
     {
         _overlay = new OverlayForm(AppIcon, Switcher, () => _gamepad?.AnyInputHeld ?? false, minimizedGame, controllerIndex,
-            () => Settings.ImmersiveConsole, SetImmersiveConsole);
+            () => Settings.ImmersiveConsole, SetImmersiveConsole, Settings.ButtonIcons);
         _overlay.FormClosed += (_, _) =>
         {
             _overlay = null;
@@ -322,7 +345,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         if (_overlay != null && !_overlay.IsDisposed)
         {
-            // Con el overlay abierto, también View + Menú lo gestiona él: espera a que se suelten antes de cerrarse.
+            // With the overlay open it also handles its combination: it waits for the buttons to be released to close.
             _overlay.HandlePadAction(action);
         }
         else if (action == PadAction.ToggleOverlay)
@@ -384,8 +407,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         GameProcesses.SetTracking(false);
         _updateTimer.Dispose();
         _overlay?.Close();
-        _form?.Close();
-        _form?.Dispose();
+        _window?.CloseForExit();
         ExitThread();
     }
 
@@ -393,7 +415,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         UpdateTray(state);
         UpdateImmersiveGuard(state);
-        _form?.UpdateModeState(state);
+        _window?.UpdateModeState(state);
         if (state.Error != null)
         {
             Notify($"Cambio a modo {state.Mode.ToDisplayName()} con avisos: {state.Error}", ToolTipIcon.Warning);

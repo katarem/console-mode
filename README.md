@@ -36,7 +36,7 @@ Tiene dos partes:
 - **Segundo plano**: al cerrar la ventana la app sigue funcionando. El icono de la bandeja (en «iconos ocultos»)
   es opcional.
 - **Iniciar con Windows** (opcional), directamente en segundo plano.
-- **Overlay con el mando**: mantén **View + Menú** durante medio segundo en un mando Xbox para cambiar de modo, de audio,
+- **Overlay con el mando**: mantén **View + Menú** (o la combinación que elijas) durante medio segundo en un mando Xbox para cambiar de modo, de audio,
   de micrófono o de pantalla, subir o bajar el volumen, silenciar el sonido o el micrófono, activar el modo inmersivo y
   suspender, reiniciar o apagar el PC desde el sofá. Muestra también la hora y la batería del mando (ver más abajo).
 - **Modo consola inmersivo** (opcional): en modo consola solo se ven el frontal, los juegos y el overlay. Spotify,
@@ -59,7 +59,7 @@ Sí. Se hace en dos pasos:
    pantalla principal, así que normalmente ya aparece ahí.
 2. Si Steam la abre en otra pantalla (a veces recuerda la última posición), Console Mode busca la ventana de
    Big Picture durante 60 segundos y la **mueve y la ajusta** al tamaño de la pantalla de la consola. Esto es la
-   opción «Forzarlo en la pantalla del modo consola» (*Modos → Opciones del modo consola → Frontal*).
+   opción «Forzarlo en la pantalla del modo consola» (*Modo consola → Frontal y ventanas*).
 
 ## Instalación
 
@@ -111,7 +111,7 @@ pública.
 
 ## Uso
 
-1. **Configura los modos**, en la pestaña *Modos* de la app de PC:
+1. **Configura los modos**, en la sección *Modos* de la app de PC (barra lateral). Arriba eliges qué modo configuras:
    - Modo PC: tu monitor como pantalla principal y tus auriculares o altavoces.
    - Modo Consola: la TV como pantalla principal y la salida de audio de la TV o del receptor AV.
    - **Micrófono** y **Comunicaciones** (opcionales): por ejemplo, el juego por la TV y Discord por los auriculares
@@ -121,15 +121,18 @@ pública.
 
    La TV tiene que estar **encendida y conectada** (como pantalla extendida) para que aparezca en la lista y para
    poder cambiar a ella.
-2. **Vincula el móvil**: en la app móvil, pulsa «Escanear código QR» y apunta al QR de la pestaña *Móviles* del PC,
+2. **Vincula el móvil**: en la app móvil, pulsa «Escanear código QR» y apunta al QR de la sección *Móviles* del PC,
    o pulsa «Buscar en la red». Acepta la solicitud que aparece en el PC.
-3. **Cambia de modo** con el interruptor del móvil, con los botones de la ventana del PC o con el menú del icono de
+3. **Cambia de modo** con el interruptor del móvil, con las tarjetas *Modo PC* / *Modo consola* de *Inicio* en la
+   ventana del PC o con el menú del icono de
    la bandeja.
 
 ### Overlay con el mando
 
 Con un mando **Xbox o compatible XInput** (incluidos los 8BitDo en modo X), mantén **View + Menú** (los dos botones
-pequeños del centro) durante **medio segundo**. Aparece un panel en la esquina inferior derecha. Arriba muestra el modo
+pequeños del centro) durante **medio segundo**. La combinación se puede cambiar en *Modo consola → Overlay del mando →
+Combinación para abrirlo*: pulsa **Cambiar**, mantén en el mando los botones que quieras (2 o 3, que no sean solo la
+cruceta, A y B) durante un segundo y pulsa **Guardar**. Mientras eliges, el overlay no se abre. Aparece un panel en la esquina inferior derecha. Arriba muestra el modo
 actual, la **hora** y la **batería** del mando con el que lo has abierto (en rojo si está baja; con un mando con cable pone
 «Con cable», y si el mando no informa de su batería no aparece). Debajo tiene:
 
@@ -150,34 +153,37 @@ actual, la **hora** y la **batería** del mando con el que lo has abierto (en ro
   ahora. Al pulsar **A**, el panel pasa al centro de la pantalla con la lista de opciones. Elige con **A** o vuelve
   con **B**. Si el frontal está abierto y cambias de pantalla, se mueve a la elegida.
 - **Volumen** del sonido y del micrófono: ajústalo con **← →** (de 5 en 5 %). **A** silencia o activa.
-- **Modo inmersivo** (en modo consola): **A** lo activa o lo desactiva, igual que la casilla de la ventana del PC (y
+- **Modo inmersivo** (en modo consola): **A** lo activa o lo desactiva, igual que el interruptor de la ventana del PC (y
   se guarda). Ver [Modo consola inmersivo](#modo-consola-inmersivo).
 - **Suspender**, **Reiniciar** y **Apagar**: tres botones al final del panel (elige con ← →). Cada uno pide
   confirmación en un diálogo en el centro de la pantalla que empieza en «No». Desde suspensión puedes despertar el PC
   con el mando o desde el móvil si lo has preparado (ver [Encender el PC a distancia](#encender-el-pc-a-distancia)).
 
-Usa la **cruceta o el stick** para moverte, **A** para elegir y **B** (o View + Menú otra vez) para cerrar. El panel
+Usa la **cruceta o el stick** para moverte, **A** para elegir y **B** (o la combinación otra vez) para cerrar. El panel
 también se cierra solo tras 20 segundos sin usarlo.
 
 Lo que elijas aquí es **temporal**: no cambia la configuración de tus modos. La próxima vez que cambies de modo se
-aplicará lo que tengas configurado en la pestaña *Modos*.
+aplicará lo que tengas configurado en *Modos*.
+
+En *Modo consola → Overlay del mando → Iconos de los botones* eliges cómo se dibujan los botones, en el overlay y en la
+ventana: **Xbox** (por defecto), **PlayStation** o **Nintendo**. Se emparejan por su posición en el mando: el botón de
+abajo es A en Xbox, ✕ en PlayStation y B en Nintendo. Solo cambia el dibujo: el mando se sigue leyendo por XInput (un
+mando de PlayStation o Nintendo necesita Steam Input o DS4Windows).
 
 Notas:
 
 - Mientras el panel está abierto se queda con el foco, para que A y B no lleguen también a Big Picture o al juego. Al
-  cerrarlo, el foco vuelve donde estaba. Al mantener View + Menú, el juego también recibe esas pulsaciones (por
+  cerrarlo, el foco vuelve donde estaba. Al mantener la combinación, el juego también recibe esas pulsaciones (por
   ejemplo, puede abrir su menú de pausa).
 - Un juego en **pantalla completa exclusiva** dibuja directamente en la pantalla y no deja ver nada encima. En ese
   caso Console Mode lo minimiza (como Alt+Tab), enseña el overlay y, al cerrarlo, lo restaura. Se puede desactivar en
-  *Modos → Opciones del modo consola → Overlay del mando*. Antes de eso, prueba a dejar activadas las **optimizaciones de pantalla completa** de
+  *Modo consola → Overlay del mando*. Antes de eso, prueba a dejar activadas las **optimizaciones de pantalla completa** de
   Windows (propiedades del `.exe` → Compatibilidad): con ellas muchos juegos «exclusivos» admiten ventanas encima.
-- Se puede desactivar en *Modos → Opciones del modo consola → Overlay del mando*. También se abre desde el menú del
-  icono de la bandeja.
+- Se puede desactivar en *Modo consola → Overlay del mando*. También se abre desde el menú del icono de la bandeja.
 
 ### Modo consola inmersivo
 
-En *Modos → Opciones del modo consola → Modo inmersivo*, marca **Activar el modo consola inmersivo**, o actívalo desde
-el overlay del mando. Mientras estés en modo consola:
+En *Modo consola → Frontal y ventanas*, activa **Modo inmersivo**, o actívalo desde el overlay del mando. Mientras estés en modo consola:
 
 - Se ven el **frontal** (Big Picture, Playnite...), las **tiendas de juegos** (Steam, Epic, EA app, Ubisoft Connect,
   Battle.net, GOG Galaxy, Xbox), **los juegos y todo lo que abran** (lanzadores, avisos del antitrampas...) y el
@@ -226,7 +232,7 @@ Para que funcione:
 1. **BIOS/UEFI**: activa Wake-on-LAN. Según el fabricante se llama «Wake on LAN», «Power On By PCI-E», «Resume by
    PCI-E Device» o «Remote Wake Up». Si existe «ErP» o «Deep Sleep», desactívalo.
 2. **Cable**: conecta el PC por Ethernet. Por Wi-Fi casi nunca funciona desde apagado.
-3. **Windows**: en la pestaña *Encendido* de la app de PC, marca lo que quieras y pulsa **Aplicar** (pide permiso de
+3. **Windows**: en la sección *Encendido* de la app de PC, marca lo que quieras y pulsa **Aplicar** (pide permiso de
    administrador una vez):
    - **Tarjeta de red**: activa «Activar con paquete mágico» y «Permitir que este dispositivo reactive el equipo», y
      desactiva el despertar por patrones (para que el tráfico normal de la red no lo despierte).
@@ -238,7 +244,7 @@ Para que funcione:
 4. **Móvil**: conéctate al PC una vez con la app nueva para que guarde los datos de su tarjeta de red.
 
 Console Mode guarda cómo estaba cada ajuste en `%ProgramData%\ConsoleMode\wake-setup.json`. Con **Deshacer todo**, o al
-desinstalar la app, todo vuelve a quedar como antes. La pestaña también tiene una guía (botón **Ver guía**), incluido cómo hacer que Windows
+desinstalar la app, todo vuelve a quedar como antes. La sección también tiene una **Guía** plegable, incluido cómo hacer que Windows
 inicie sesión solo con sus propias herramientas (Console Mode no guarda tu contraseña).
 
 ### Actualizaciones
@@ -258,7 +264,7 @@ Cada app busca su propio archivo en las últimas releases (`ConsoleMode-Setup-X.
 
 ### Segundo plano e inicio con Windows
 
-En la pestaña *Ajustes*:
+En *Ajustes* (abajo en la barra lateral):
 
 - **Icono en la bandeja del sistema**: si lo desactivas, la app sigue funcionando pero sin icono. Para volver
   a ver la ventana, ejecuta otra vez `ConsoleMode.exe`. No se abre una segunda copia: se muestra la ventana de la
@@ -298,6 +304,7 @@ carpeta.
 
 ```bash
 # App de PC (necesita el SDK de .NET 8; se puede compilar desde Linux/macOS)
+dotnet test pc/ConsoleMode.Tests/ConsoleMode.Tests.csproj -c Release
 dotnet publish pc/ConsoleMode/ConsoleMode.csproj -c Release -r win-x64 --self-contained true \
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 
@@ -319,7 +326,7 @@ La versión de cada app es independiente: `<Version>` en `pc/ConsoleMode/Console
 
 GitHub Actions tiene dos workflows:
 
-- **`ci.yml`, en cada pull request**: comprobaciones rápidas de la app que haya cambiado (`dotnet build` para la de
+- **`ci.yml`, en cada pull request**: comprobaciones rápidas de la app que haya cambiado (`dotnet build` y `dotnet test pc/ConsoleMode.Tests/ConsoleMode.Tests.csproj` para la de
   PC; `flutter analyze` y `flutter test` para la móvil). No genera instaladores ni APK. Un push nuevo cancela la
   comprobación anterior de la misma PR, y los cambios que solo tocan el README o `docs/` no lanzan nada.
 - **`release.yml`, al fusionar en `main`**: la etiqueta es la versión más alta de las dos apps. Si esa etiqueta
@@ -359,7 +366,9 @@ pc/ConsoleMode/
   Core/       Configuración, cambio de modo, inicio con Windows, encendido a distancia y log
   Native/     Pantallas, audio, frontales (Big Picture, Playnite...), modo inmersivo y energía (Win32 / COM)
   Network/    Servidor TCP, emparejamiento y descubrimiento UDP
-  UI/         Ventana principal, icono de bandeja y diálogo de emparejamiento
+  UI/         Icono de bandeja, overlay del mando y diálogo de emparejamiento (WinForms)
+  UI/Fluent/  Ventana principal (WPF con WPF-UI; ver docs/adr/0001-wpf-ui-for-the-pc-main-window.md)
+pc/ConsoleMode.Tests/  Tests de la lógica de la app de PC (xunit; se ejecutan también en Linux)
 mobile/lib/
   services/   Protocolo, emparejamiento, conexión, descubrimiento y Wake-on-LAN
   screens/    Inicio, escáner QR, búsqueda, emparejamiento y control

@@ -1,0 +1,94 @@
+<Page x:Class="ConsoleMode.UI.Fluent.ConsoleModePage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+      xmlns:local="clr-namespace:ConsoleMode.UI.Fluent"
+      Title="Modo consola">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Style="{StaticResource PageContent}">
+            <TextBlock Style="{StaticResource PageTitle}" Text="Modo consola" />
+
+            <TextBlock Style="{StaticResource SectionTitle}" Text="Overlay del mando" Margin="0,0,0,8" />
+            <Border Style="{StaticResource CardRow}">
+                <DockPanel>
+                    <local:IconChip DockPanel.Dock="Left" Glyph="&#xE7FC;" ChipColor="#16A34A" />
+                    <ui:ToggleSwitch x:Name="OverlaySwitch" DockPanel.Dock="Right" VerticalAlignment="Center" />
+                    <TextBlock Style="{StaticResource RowTitle}" Text="Activar el overlay" Margin="16,0" />
+                </DockPanel>
+            </Border>
+            <Border Style="{StaticResource CardRow}">
+                <DockPanel>
+                    <local:IconChip DockPanel.Dock="Left" Glyph="&#xE765;" ChipColor="#3B82F6" />
+                    <ui:Button DockPanel.Dock="Right" Content="Cambiar" VerticalAlignment="Center" Click="OnChangeComboClick" />
+                    <local:ComboGlyphs x:Name="OverlayCombo" DockPanel.Dock="Right" Margin="0,0,16,0" />
+                    <TextBlock Style="{StaticResource RowTitle}" Text="Combinación para abrirlo" Margin="16,0" />
+                </DockPanel>
+            </Border>
+            <Border Style="{StaticResource CardRow}">
+                <DockPanel>
+                    <local:IconChip DockPanel.Dock="Left" Glyph="&#xE790;" ChipColor="#8B5CF6" />
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <local:OverlayHintPreview x:Name="HintPreview" Margin="0,0,12,0" />
+                        <Border Style="{StaticResource SegmentedContainer}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="XboxIcons" GroupName="ButtonIcons" Style="{StaticResource SegmentedRadioButton}" Content="Xbox" Checked="OnIconsChecked" />
+                                <RadioButton x:Name="PlayStationIcons" GroupName="ButtonIcons" Style="{StaticResource SegmentedRadioButton}" Content="PlayStation" Checked="OnIconsChecked" />
+                                <RadioButton x:Name="NintendoIcons" GroupName="ButtonIcons" Style="{StaticResource SegmentedRadioButton}" Content="Nintendo" Checked="OnIconsChecked" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource RowTitle}" Text="Iconos de los botones" Margin="16,0" />
+                </DockPanel>
+            </Border>
+            <Border Style="{StaticResource CardRow}">
+                <DockPanel>
+                    <local:IconChip DockPanel.Dock="Left" Glyph="&#xE73F;" ChipColor="#0EA5E9" />
+                    <ui:ToggleSwitch x:Name="MinimizeExclusiveSwitch" DockPanel.Dock="Right" VerticalAlignment="Center" />
+                    <TextBlock Style="{StaticResource RowTitle}" Text="Minimizar juegos en pantalla completa exclusiva" Margin="16,0"
+                               ToolTip="Esos juegos no dejan ver ninguna ventana encima: se minimizan al abrir el overlay y se restauran al cerrarlo." />
+                </DockPanel>
+            </Border>
+
+            <TextBlock Style="{StaticResource SectionTitle}" Text="Frontal y ventanas" />
+            <Border Style="{StaticResource CardRow}">
+                <StackPanel>
+                    <DockPanel>
+                        <local:IconChip DockPanel.Dock="Left" Glyph="&#xE768;" ChipColor="#14B8A6" />
+                        <ComboBox x:Name="FrontendCombo" DockPanel.Dock="Right" Width="320" VerticalAlignment="Center" />
+                        <TextBlock Style="{StaticResource RowTitle}" Text="Frontal" Margin="16,0"
+                                   ToolTip="Lo que se abre en la TV al entrar en modo consola: Steam Big Picture, Playnite u otro programa (LaunchBox Big Box, EmulationStation, tu launcher…)." />
+                    </DockPanel>
+                    <DockPanel x:Name="PathRow" Margin="52,12,0,0">
+                        <ui:Button x:Name="BrowseButton" DockPanel.Dock="Right" Content="Examinar…" Margin="8,0,0,0" Click="OnBrowseClick" />
+                        <ui:TextBox x:Name="FrontendPath" />
+                    </DockPanel>
+                    <ui:TextBox x:Name="FrontendArgs" Margin="52,8,0,0" PlaceholderText="Argumentos" />
+                    <DockPanel Margin="52,12,0,0">
+                        <ui:ToggleSwitch x:Name="LaunchSwitch" DockPanel.Dock="Right" />
+                        <TextBlock Style="{StaticResource RowTitle}" Text="Abrirlo al entrar en modo consola" />
+                    </DockPanel>
+                    <DockPanel Margin="52,12,0,0">
+                        <ui:ToggleSwitch x:Name="MoveSwitch" DockPanel.Dock="Right" />
+                        <TextBlock Style="{StaticResource RowTitle}" Text="Forzarlo en la pantalla del modo consola"
+                                   ToolTip="Si el frontal se abre en otra pantalla, Console Mode lo busca durante un minuto y lo mueve a la del modo consola." />
+                    </DockPanel>
+                    <DockPanel Margin="52,12,0,0">
+                        <ui:ToggleSwitch x:Name="CloseSwitch" DockPanel.Dock="Right" />
+                        <TextBlock Style="{StaticResource RowTitle}" Text="Cerrarlo al volver a modo PC" />
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource CardRow}">
+                <StackPanel>
+                    <DockPanel>
+                        <local:IconChip DockPanel.Dock="Left" Glyph="&#xE740;" ChipColor="#D97706" />
+                        <ui:ToggleSwitch x:Name="ImmersiveSwitch" DockPanel.Dock="Right" VerticalAlignment="Center" />
+                        <TextBlock Style="{StaticResource RowTitle}" Text="Modo inmersivo" Margin="16,0"
+                                   ToolTip="En modo consola solo se ven el frontal, los juegos y el overlay: Spotify, Discord y el resto de ventanas se ocultan en cuanto aparecen y vuelven al pasar a modo PC." />
+                    </DockPanel>
+                    <ui:TextBox x:Name="ImmersiveAllowed" Margin="52,12,0,0" PlaceholderText="Permitir también: programas separados por comas (p. ej. Spotify)" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

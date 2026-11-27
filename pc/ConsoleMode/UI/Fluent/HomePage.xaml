@@ -1,0 +1,93 @@
+<Page x:Class="ConsoleMode.UI.Fluent.HomePage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+      xmlns:local="clr-namespace:ConsoleMode.UI.Fluent"
+      Title="Inicio">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Style="{StaticResource PageContent}">
+            <TextBlock Style="{StaticResource PageTitle}" Text="Inicio" />
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <ui:Button x:Name="PcButton" Grid.Column="0" Height="96" HorizontalAlignment="Stretch"
+                           HorizontalContentAlignment="Left" Padding="22,0" Click="OnPcClick">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="Desktop24" FontSize="28" Margin="0,0,16,0" />
+                        <TextBlock Text="Modo PC" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ui:Button>
+                <ui:Button x:Name="ConsoleButton" Grid.Column="2" Height="96" HorizontalAlignment="Stretch"
+                           HorizontalContentAlignment="Left" Padding="22,0" Click="OnConsoleClick">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="Games24" FontSize="28" Margin="0,0,16,0" />
+                        <TextBlock Text="Modo consola" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ui:Button>
+            </Grid>
+            <StackPanel x:Name="BusyPanel" Orientation="Horizontal" Margin="2,10,0,0" Visibility="Collapsed">
+                <ui:ProgressRing IsIndeterminate="True" Width="16" Height="16" Margin="0,0,10,0" />
+                <TextBlock Style="{StaticResource Secondary}" Text="Cambiando de modo…" />
+            </StackPanel>
+
+            <Grid Margin="0,16,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1.35*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Style="{StaticResource CardRow}" Padding="18">
+                    <StackPanel>
+                        <DockPanel LastChildFill="True">
+                            <local:IconChip DockPanel.Dock="Left" Glyph="&#xE7FC;" ChipColor="#4C46E5" />
+                            <TextBlock x:Name="OverlayState" DockPanel.Dock="Right" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <TextBlock Style="{StaticResource RowTitle}" Text="Overlay del mando" FontWeight="SemiBold" Margin="12,0,8,0" />
+                        </DockPanel>
+                        <DockPanel Margin="0,14,0,0" LastChildFill="False">
+                            <local:ComboGlyphs x:Name="OverlayCombo" DockPanel.Dock="Left" />
+                            <ui:Button DockPanel.Dock="Right" Content="Cambiar" Click="OnChangeComboClick" />
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="2" Style="{StaticResource CardRow}" Padding="18">
+                    <StackPanel>
+                        <DockPanel LastChildFill="True">
+                            <local:IconChip DockPanel.Dock="Left" Glyph="&#xE8EA;" ChipColor="#3B82F6" />
+                            <TextBlock x:Name="DeviceCount" DockPanel.Dock="Right" Style="{StaticResource Secondary}" FontSize="12" FontWeight="SemiBold" />
+                            <TextBlock Style="{StaticResource RowTitle}" Text="Móviles" FontWeight="SemiBold" Margin="12,0,8,0" />
+                        </DockPanel>
+                        <ui:Button Margin="0,14,0,0" Appearance="Transparent" Padding="6,4" Click="OnPairClick">
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="QrCode24" Margin="0,0,8,0" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                                <TextBlock Text="Vincular otro móvil" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                            </StackPanel>
+                        </ui:Button>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="4" Style="{StaticResource CardRow}" Padding="18">
+                    <StackPanel>
+                        <DockPanel LastChildFill="True">
+                            <local:IconChip DockPanel.Dock="Left" Glyph="&#xE7E8;" ChipColor="#DC2626" />
+                            <TextBlock Style="{StaticResource RowTitle}" Text="Encender a distancia" FontWeight="SemiBold" Margin="12,0,0,0" />
+                        </DockPanel>
+                        <ui:Button Margin="0,14,0,0" Appearance="Transparent" Padding="6,4" Click="OnPowerClick">
+                            <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="ShieldCheckmark24" Margin="0,0,8,0" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                                <TextBlock Text="Preparar Windows" FontWeight="SemiBold" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                            </StackPanel>
+                        </ui:Button>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

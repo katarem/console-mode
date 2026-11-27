@@ -104,8 +104,24 @@ public sealed class AppSettings
     [JsonPropertyName("CloseBigPictureOnPcMode")]
     public bool CloseFrontendOnPcMode { get; set; } = true;
 
-    /// <summary>Mantener View + Menú en un mando Xbox abre el overlay de audio y pantalla.</summary>
+    /// <summary>Holding the overlay combination (<see cref="OverlayCombo"/>) on a gamepad opens the overlay.</summary>
     public bool GamepadOverlayEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Buttons that open the overlay, stored by name so that an unknown or hand-edited value falls back to the default
+    /// instead of making the whole file unreadable.
+    /// </summary>
+    public List<string> OverlayCombo { get; set; } = OverlayCombos.ToNames(OverlayCombos.Default);
+
+    /// <summary>Console whose button icons the overlay and the window show (input is still XInput).</summary>
+    public ButtonIconFamily ButtonIcons { get; set; } = ButtonIconFamily.Xbox;
+
+    [JsonIgnore]
+    public GamepadButtons OverlayComboButtons
+    {
+        get => OverlayCombos.FromNames(OverlayCombo);
+        set => OverlayCombo = OverlayCombos.ToNames(value);
+    }
 
     /// <summary>Minimizar los juegos en pantalla completa exclusiva para poder enseñar el overlay encima.</summary>
     public bool MinimizeExclusiveFullscreen { get; set; } = true;
@@ -141,6 +157,11 @@ public sealed class AppSettings
 
     private static readonly object FileLock = new();
 
+    /// <summary>Reads settings.json content. Throws when it is not valid JSON for these settings.</summary>
+    public static AppSettings? FromJson(string json) => JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
+
+    public string ToJson() => JsonSerializer.Serialize(this, JsonOptions);
+
     public static AppSettings Load()
     {
         lock (FileLock)
@@ -149,8 +170,7 @@ public sealed class AppSettings
             {
                 if (File.Exists(FilePath))
                 {
-                    var json = File.ReadAllText(FilePath);
-                    var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
+                    var settings = FromJson(File.ReadAllText(FilePath));
                     if (settings != null)
                     {
                         return settings;
@@ -174,7 +194,7 @@ public sealed class AppSettings
         {
             System.IO.Directory.CreateDirectory(Directory);
             var tmp = FilePath + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(this, JsonOptions));
+            File.WriteAllText(tmp, ToJson());
             File.Move(tmp, FilePath, overwrite: true);
         }
     }

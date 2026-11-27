@@ -4,6 +4,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
     <!-- DPI awareness lives here, not in app.manifest: ApplicationConfiguration.Initialize() applies it. -->
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <Nullable>enable</Nullable>
@@ -13,7 +14,7 @@
     <RootNamespace>ConsoleMode</RootNamespace>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.9.0</Version>
+    <Version>1.10.0</Version>
     <Product>Console Mode</Product>
     <Description>Cambia el PC entre modo PC y modo consola (Steam Big Picture)</Description>
     <InvariantGlobalization>false</InvariantGlobalization>
@@ -24,9 +25,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- UseWPF drops these from the implicit usings, and the app uses both. -->
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
     <PackageReference Include="QRCoder" Version="1.6.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="WPF-UI" Version="4.3.0" />
   </ItemGroup>
 
 </Project>
