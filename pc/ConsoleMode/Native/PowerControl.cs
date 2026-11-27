@@ -29,7 +29,7 @@ public static class PowerControl
 
     public static void Restart()
     {
-        Log.Info("Reiniciando el PC");
+        Log.Info("Restarting the PC");
         Process.Start(new ProcessStartInfo("shutdown.exe", "/r /t 0") { UseShellExecute = false, CreateNoWindow = true });
     }
 

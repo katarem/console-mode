@@ -21,7 +21,7 @@ public sealed class GamepadWatcher : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private Thread? _thread;
 
-    /// <summary>Se dispara desde el hilo del mando, con la acción y el índice XInput (0–3) del mando que la ha hecho.</summary>
+    /// <summary>Raised on the gamepad thread with the action and the XInput index (0–3) of the controller that made it.</summary>
     public event Action<PadAction, int>? Action;
 
     /// <summary>Lo actualiza la UI: con el overlay abierto se navega y se lee más a menudo.</summary>
@@ -106,7 +106,7 @@ public sealed class GamepadWatcher : IDisposable
             if (!_batteryUnavailableLogged)
             {
                 _batteryUnavailableLogged = true;
-                Log.Error("XInput no permite leer la batería del mando", ex);
+                Log.Error("XInput cannot read the controller battery", ex);
             }
             return null;
         }

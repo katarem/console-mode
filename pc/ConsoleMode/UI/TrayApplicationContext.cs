@@ -267,7 +267,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    /// <param name="controllerIndex">Mando que ha abierto el overlay (null si se abre desde el menú de la bandeja).</param>
+    /// <param name="controllerIndex">Controller that opened the overlay (null when it is opened from the tray menu).</param>
     public void ToggleOverlay(int? controllerIndex = null)
     {
         if (_overlay != null && !_overlay.IsDisposed)
