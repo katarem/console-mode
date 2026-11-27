@@ -159,7 +159,7 @@ actual, la **hora** y la **batería** del mando con el que lo has abierto (en ro
   confirmación en un diálogo en el centro de la pantalla que empieza en «No». Desde suspensión puedes despertar el PC
   con el mando o desde el móvil si lo has preparado (ver [Encender el PC a distancia](#encender-el-pc-a-distancia)).
 
-Usa la **cruceta o el stick** para moverte, **A** para elegir y **B** (o View + Menú otra vez) para cerrar. El panel
+Usa la **cruceta o el stick** para moverte, **A** para elegir y **B** (o la combinación otra vez) para cerrar. El panel
 también se cierra solo tras 20 segundos sin usarlo.
 
 Lo que elijas aquí es **temporal**: no cambia la configuración de tus modos. La próxima vez que cambies de modo se
@@ -173,7 +173,7 @@ mando de PlayStation o Nintendo necesita Steam Input o DS4Windows).
 Notas:
 
 - Mientras el panel está abierto se queda con el foco, para que A y B no lleguen también a Big Picture o al juego. Al
-  cerrarlo, el foco vuelve donde estaba. Al mantener View + Menú, el juego también recibe esas pulsaciones (por
+  cerrarlo, el foco vuelve donde estaba. Al mantener la combinación, el juego también recibe esas pulsaciones (por
   ejemplo, puede abrir su menú de pausa).
 - Un juego en **pantalla completa exclusiva** dibuja directamente en la pantalla y no deja ver nada encima. En ese
   caso Console Mode lo minimiza (como Alt+Tab), enseña el overlay y, al cerrarlo, lo restaura. Se puede desactivar en

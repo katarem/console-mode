@@ -1735,7 +1735,7 @@ public sealed class OverlayForm : Form
         return badge;
     }
 
-    /// <summary>Ayuda del pie con los botones del mando dibujados con sus colores (A verde, B rojo).</summary>
+    /// <summary>Hints at the bottom, with the gamepad buttons drawn with the chosen console's icons.</summary>
     private void DrawHints(Graphics g, Fonts f)
     {
         var hints = new List<(GamepadButtons? Button, string Text)>();

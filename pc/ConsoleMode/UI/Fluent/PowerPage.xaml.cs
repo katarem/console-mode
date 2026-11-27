@@ -47,7 +47,7 @@ public partial class PowerPage : Page
         }
         catch (Exception ex)
         {
-            Log.Error("Encendido a distancia", ex);
+            Log.Error("Remote power setup failed", ex);
             ShowWakeState(note: ex.Message, error: true);
         }
         finally

@@ -125,7 +125,7 @@ public partial class SettingsPage : Page
         catch (Exception ex)
         {
             UpdateText.Text = $"No se pudo actualizar: {ex.Message}";
-            Log.Error("Error al actualizar", ex);
+            Log.Error("Update failed", ex);
         }
         finally
         {

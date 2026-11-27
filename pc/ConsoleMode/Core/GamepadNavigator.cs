@@ -34,6 +34,7 @@ public sealed class GamepadNavigator
     public bool TriggerSuspended { get; set; }
 
     private GamepadButtons _previous;
+    private GamepadButtons? _lastCombo; // null until the first reading
     private TimeSpan? _comboSince;
     private bool _comboFired;
     private int _direction;
@@ -43,6 +44,15 @@ public sealed class GamepadNavigator
     {
         var actions = new List<PadAction>();
         var comboHeld = Combo != GamepadButtons.None && (buttons & Combo) == Combo;
+
+        if (_lastCombo != null && Combo != _lastCombo)
+        {
+            // A combination that has just been saved while it is still held (it was being captured) does not fire
+            // until it is released and held again.
+            _comboSince = null;
+            _comboFired = comboHeld;
+        }
+        _lastCombo = Combo;
 
         if (TriggerSuspended)
         {

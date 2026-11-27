@@ -71,6 +71,15 @@ internal sealed class ComboCaptureDialog
                     _ => state.Captured == state.Held ? "Combinación lista" : "Mantén los botones…",
                 };
         };
+        // Hiding the window (X, Alt+F4) leaves the dialog pending: close it so the gamepad is not left suspended.
+        System.Windows.DependencyPropertyChangedEventHandler onVisibility = (_, _) =>
+        {
+            if (!_window.IsVisible)
+            {
+                dialog.Hide(ContentDialogResult.None);
+            }
+        };
+        _window.IsVisibleChanged += onVisibility;
         timer.Start();
         try
         {
@@ -90,6 +99,7 @@ internal sealed class ComboCaptureDialog
         finally
         {
             timer.Stop();
+            _window.IsVisibleChanged -= onVisibility;
         }
     }
 }

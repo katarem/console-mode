@@ -65,7 +65,7 @@ public partial class DevicesPage : Page
         text.Children.Add(title);
         text.Children.Add(details);
 
-        var chip = new IconChip { Glyph = "", ChipColor = System.Windows.Media.Color.FromRgb(59, 130, 246) };
+        var chip = new IconChip { Glyph = "\uE8EA", ChipColor = System.Windows.Media.Color.FromRgb(59, 130, 246) };
         var row = new DockPanel();
         DockPanel.SetDock(chip, Dock.Left);
         DockPanel.SetDock(remove, Dock.Right);

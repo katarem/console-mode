@@ -104,7 +104,7 @@ public sealed class AppSettings
     [JsonPropertyName("CloseBigPictureOnPcMode")]
     public bool CloseFrontendOnPcMode { get; set; } = true;
 
-    /// <summary>Mantener View + Menú en un mando Xbox abre el overlay de audio y pantalla.</summary>
+    /// <summary>Holding the overlay combination (<see cref="OverlayCombo"/>) on a gamepad opens the overlay.</summary>
     public bool GamepadOverlayEnabled { get; set; } = true;
 
     /// <summary>

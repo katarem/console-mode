@@ -4,12 +4,6 @@
       xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
       xmlns:local="clr-namespace:ConsoleMode.UI.Fluent"
       Title="Modo consola">
-    <Page.Resources>
-        <!-- Row with an icon chip (or its empty space), a title and a control on the right. -->
-        <Style x:Key="ChipSpace" TargetType="FrameworkElement">
-            <Setter Property="Width" Value="36" />
-        </Style>
-    </Page.Resources>
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Style="{StaticResource PageContent}">
             <TextBlock Style="{StaticResource PageTitle}" Text="Modo consola" />

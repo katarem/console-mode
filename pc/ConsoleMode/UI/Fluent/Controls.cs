@@ -144,10 +144,10 @@ public sealed class ButtonGlyphView : Border
     /// </summary>
     private static string? IconFor(ButtonIconFamily family, GamepadButtons button) => (family, button) switch
     {
-        (ButtonIconFamily.Xbox, GamepadButtons.View) => "",
-        (ButtonIconFamily.Xbox, GamepadButtons.Menu) => "",
-        (ButtonIconFamily.PlayStation, GamepadButtons.View) => "",
-        (ButtonIconFamily.PlayStation, GamepadButtons.Menu) => "",
+        (ButtonIconFamily.Xbox, GamepadButtons.View) => "\uE8C8",
+        (ButtonIconFamily.Xbox, GamepadButtons.Menu) => "\uE700",
+        (ButtonIconFamily.PlayStation, GamepadButtons.View) => "\uE72D",
+        (ButtonIconFamily.PlayStation, GamepadButtons.Menu) => "\uE700",
         _ => null,
     };
 }

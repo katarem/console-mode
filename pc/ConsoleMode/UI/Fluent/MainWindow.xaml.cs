@@ -49,7 +49,7 @@ public partial class MainWindow : FluentWindow, IMainWindow
             StatusBar.IsOpen = false;
         };
 
-        ApplyModeState(app.Switcher.State);
+        _home.UpdateModeState(app.Switcher.State); // the modes page has just read the devices
         if (app.ServerError != null)
         {
             ShowStatus(app.ServerError, error: true);

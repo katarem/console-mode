@@ -197,7 +197,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         Server.DisconnectDevice(deviceId);
     }
 
-    /// <summary>Activa o desactiva la lectura del mando para el overlay (View + Menú).</summary>
+    /// <summary>Turns reading the gamepad for the overlay (its combination) on or off.</summary>
     public void SetGamepadOverlayEnabled(bool enabled)
     {
         lock (Settings)
@@ -297,8 +297,9 @@ public sealed class TrayApplicationContext : ApplicationContext
             _overlay.Close();
             return;
         }
-        if (_overlayPending)
+        if (_overlayPending || _gamepad?.TriggerSuspended == true)
         {
+            // A new combination is being captured: the overlay could not be used with the gamepad.
             return;
         }
 
@@ -344,7 +345,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         if (_overlay != null && !_overlay.IsDisposed)
         {
-            // Con el overlay abierto, también View + Menú lo gestiona él: espera a que se suelten antes de cerrarse.
+            // With the overlay open it also handles its combination: it waits for the buttons to be released to close.
             _overlay.HandlePadAction(action);
         }
         else if (action == PadAction.ToggleOverlay)

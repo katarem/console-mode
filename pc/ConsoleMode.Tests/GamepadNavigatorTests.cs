@@ -107,6 +107,26 @@ public class GamepadNavigatorTests
     }
 
     [Fact]
+    public void SavingANewComboWhileItIsHeldDoesNotOpenTheOverlay()
+    {
+        // The capture dialog: the gamepad is suspended while the user holds LB + RB, then the combination is saved
+        // and the suspension ends before the next reading.
+        var navigator = new GamepadNavigator { TriggerSuspended = true };
+        Hold(navigator, LeftBumper | RightBumper, 0);
+        Hold(navigator, LeftBumper | RightBumper, 1000);
+
+        navigator.Combo = LeftBumper | RightBumper;
+        navigator.TriggerSuspended = false;
+        Assert.Empty(Hold(navigator, LeftBumper | RightBumper, 1100));
+        Assert.Empty(Hold(navigator, LeftBumper | RightBumper, 1600));
+        Assert.Empty(Hold(navigator, LeftBumper | RightBumper, 3000));
+
+        Hold(navigator, None, 3100);
+        Hold(navigator, LeftBumper | RightBumper, 3200);
+        Assert.Equal(new[] { PadAction.ToggleOverlay }, Hold(navigator, LeftBumper | RightBumper, 3700));
+    }
+
+    [Fact]
     public void ButtonsDoNotNavigateWhileTheOverlayIsClosed()
     {
         var navigator = new GamepadNavigator();
